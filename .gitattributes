@@ -1,2 +1,7 @@
-# Auto detect text files and perform LF normalization
-* text=auto
+# Keep text files normalized to LF across platforms.
+* text=auto eol=lf
+
+# Windows-native binaries and installers must stay untouched.
+*.exe binary
+*.dll binary
+*.ico binary
