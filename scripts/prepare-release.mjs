@@ -18,7 +18,7 @@ if (!version || !productName || !packageNameMatch) {
 }
 
 const binaryName = `${packageNameMatch[1]}.exe`;
-const portableExeName = `${productName}_${version}_x64_portable.exe`;
+const portableExeName = `${productName}_${version}_x64-portable.exe`;
 const installerName = `${productName}_${version}_x64-setup.exe`;
 
 const sourceExePath = path.join(workspaceRoot, "src-tauri", "target", "release", binaryName);
