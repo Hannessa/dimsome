@@ -1,0 +1,41 @@
+export interface HotkeyBinding {
+  enabled: boolean;
+  modifiers: string;
+  key: string;
+}
+
+export interface ManualHotkeys {
+  dimMore: HotkeyBinding;
+  dimLess: HotkeyBinding;
+}
+
+export interface SchedulePoint {
+  id: string;
+  timeOfDay: string;
+  targetDimPercent: number;
+  transitionMinutes: number;
+  enabled: boolean;
+}
+
+export interface AppSettings {
+  version: number;
+  startupEnabled: boolean;
+  scheduleEnabled: boolean;
+  dimStepPercent: number;
+  manualHotkeys: ManualHotkeys;
+  schedulePoints: SchedulePoint[];
+}
+
+export type EffectiveDimMode = "Auto" | "Manual" | "Paused";
+
+export interface EffectiveDimState {
+  mode: EffectiveDimMode;
+  currentDimPercent: number;
+  manualOverrideUntil: string | null;
+}
+
+export interface StartupRegistrationState {
+  isEnabled: boolean;
+  canChange: boolean;
+  statusText: string;
+}
