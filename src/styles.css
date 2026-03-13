@@ -69,26 +69,73 @@ body {
 }
 
 .hero,
-.grid,
-.side-column,
 .schedule-list,
-.action-row {
+.action-row,
+.settings-stack {
   display: grid;
   gap: 18px;
 }
 
-.hero {
-  grid-template-columns: 1fr minmax(220px, 280px);
-  margin-bottom: 20px;
-  align-items: start;
+.hero-centered,
+.panel-switcher,
+.panel-content {
+  display: grid;
+  justify-items: center;
 }
 
-.grid {
-  grid-template-columns: minmax(0, 1.2fr) minmax(280px, 0.8fr);
+.hero-centered {
+  margin-bottom: 22px;
+  gap: 14px;
+  text-align: center;
 }
 
-.side-column {
-  grid-template-columns: 1fr;
+.hero-brightness {
+  font-size: clamp(2rem, 4vw, 3.5rem);
+  font-weight: 700;
+  color: var(--accent);
+  line-height: 1;
+}
+
+.hero-slider-wrap {
+  width: min(100%, 720px);
+  padding: 18px 24px;
+  background: var(--panel);
+  border: 1px solid var(--stroke);
+  border-radius: 999px;
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(10px);
+}
+
+.hero-slider.p-slider {
+  width: 100%;
+}
+
+.hero-status-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 1rem;
+}
+
+.panel-switcher {
+  margin-bottom: 22px;
+}
+
+.panel-switcher .p-selectbutton {
+  justify-content: center;
+}
+
+.panel-content {
+  width: 100%;
+}
+
+.centered-card {
+  width: min(100%, 980px);
+}
+
+.settings-stack {
+  width: min(100%, 760px);
 }
 
 .card,
@@ -146,7 +193,7 @@ body {
 }
 
 .eyebrow {
-  margin: 0 0 6px;
+  margin: 0;
 }
 
 .state-value {
@@ -182,6 +229,7 @@ input[type="time"] {
 .p-inputtext,
 .p-inputnumber,
 .p-select,
+.p-selectbutton,
 .p-toggleswitch,
 .p-slider,
 .p-button {
@@ -192,11 +240,19 @@ input[type="time"] {
   white-space: nowrap;
 }
 
+.hero-status-row .p-button {
+  width: auto;
+  min-width: 2.5rem;
+}
+
 @media (max-width: 960px) {
-  .hero,
-  .grid,
   .schedule-item,
   .action-row-buttons {
     grid-template-columns: 1fr;
+  }
+
+  .hero-slider-wrap {
+    padding: 16px 18px;
+    border-radius: 28px;
   }
 }

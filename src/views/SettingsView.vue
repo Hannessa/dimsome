@@ -4,9 +4,11 @@ import Button from "primevue/button";
 import InputNumber from "primevue/inputnumber";
 import InputText from "primevue/inputtext";
 import Select from "primevue/select";
+import SelectButton from "primevue/selectbutton";
 import Slider from "primevue/slider";
 import ToggleSwitch from "primevue/toggleswitch";
 import {
+  applyManualDim,
   getEffectiveState,
   getSettings,
   getStartupState,
@@ -23,13 +25,21 @@ const settings = ref<AppSettings | null>(null);
 const currentState = ref<EffectiveDimState | null>(null);
 const startupState = ref<StartupRegistrationState | null>(null);
 const statusMessage = ref("");
+const sliderBrightness = ref(100);
+const selectedPanel = ref<"schedule" | "settings">("schedule");
 const appearanceModeOptions: Array<{ label: string; value: "system" | AppearanceMode }> = [
   { label: "Follow system", value: "system" },
   { label: "Light", value: "light" },
   { label: "Dark", value: "dark" }
 ];
+const panelOptions: Array<{ label: string; value: "schedule" | "settings" }> = [
+  { label: "Schedule", value: "schedule" },
+  { label: "Settings", value: "settings" }
+];
 
-const dimSummary = computed(() => `${settings.value?.dimStepPercent ?? 0}% per hotkey press`);
+const brightnessStepSummary = computed(() => `${settings.value?.dimStepPercent ?? 0}% per hotkey press`);
+const currentBrightnessPercent = computed(() => 100 - Math.round(currentState.value?.currentDimPercent ?? 0));
+const isFollowingSchedule = computed(() => (currentState.value?.mode ?? "Auto") === "Auto");
 const selectedAppearanceMode = computed({
   get: () => settings.value?.appearanceMode ?? "system",
   set: (value: "system" | AppearanceMode) => {
@@ -41,12 +51,18 @@ const selectedAppearanceMode = computed({
     syncAppearanceMode(settings.value.appearanceMode);
   }
 });
-const currentModeText = computed(() => {
-  const mode = currentState.value?.mode ?? "Auto";
-  if (mode === "Manual") return "Manual override";
-  if (mode === "Paused") return "Schedule paused";
-  return "Following schedule";
-});
+
+function toBrightnessPercent(dimPercent: number) {
+  return 100 - Math.round(dimPercent);
+}
+
+function toDimPercent(brightnessPercent: number) {
+  return Math.min(95, Math.max(0, 100 - brightnessPercent));
+}
+
+function syncSliderToState(state: EffectiveDimState | null) {
+  sliderBrightness.value = 100 - Math.round(state?.currentDimPercent ?? 0);
+}
 
 function ensureSettings() {
   if (!settings.value) {
@@ -74,6 +90,13 @@ function removeSchedulePoint(id: string) {
   model.schedulePoints = model.schedulePoints.filter((point) => point.id !== id);
 }
 
+async function applyBrightnessFromSlider(event: { value: number | number[] }) {
+  const nextBrightness = Array.isArray(event.value) ? event.value[0] : event.value;
+  sliderBrightness.value = nextBrightness;
+  currentState.value = await applyManualDim(toDimPercent(nextBrightness));
+  syncSliderToState(currentState.value);
+}
+
 async function save() {
   const model = ensureSettings();
   statusMessage.value = "";
@@ -98,6 +121,7 @@ async function initialize() {
   currentState.value = loadedState;
   startupState.value = loadedStartupState;
   syncAppearanceMode(loadedSettings.appearanceMode);
+  syncSliderToState(loadedState);
 }
 
 onMounted(async () => {
@@ -106,6 +130,7 @@ onMounted(async () => {
 
 onStateChanged((payload) => {
   currentState.value = payload;
+  syncSliderToState(payload);
 });
 
 onSettingsSaved((payload) => {
@@ -120,22 +145,46 @@ onStartupStateChanged((payload) => {
 
 <template>
   <main class="page page-settings" v-if="settings">
-    <section class="hero">
-      <div>
-        <p class="eyebrow">Dimsome</p>
-        <h1>Software dimming for deeper nights and smoother fades.</h1>
+    <section class="hero hero-centered">
+      <p class="eyebrow">Dimsome</p>
+      <div class="hero-brightness">{{ currentBrightnessPercent }}% brightness</div>
+      <div class="hero-slider-wrap">
+        <Slider
+          v-model="sliderBrightness"
+          class="hero-slider"
+          :min="5"
+          :max="100"
+          :step="1"
+          @slideend="applyBrightnessFromSlider"
+        />
       </div>
-      <div class="state-card">
-        <div class="section-label">Current state</div>
-        <div>{{ currentModeText }}</div>
-        <div class="state-value">{{ Math.round(currentState?.currentDimPercent ?? 0) }}% dim</div>
+      <div class="hero-status-row">
+        <span>{{ isFollowingSchedule ? "Following schedule" : "Manual override" }}</span>
+        <Button
+          v-if="!isFollowingSchedule"
+          label="▶"
+          text
+          rounded
+          aria-label="Resume schedule"
+          @click="resumeSchedule"
+        />
       </div>
     </section>
 
-    <section class="grid">
-      <div class="card schedule-card">
+    <section class="panel-switcher">
+      <SelectButton
+        v-model="selectedPanel"
+        :options="panelOptions"
+        option-label="label"
+        option-value="value"
+        :allow-empty="false"
+      />
+    </section>
+
+    <section v-if="selectedPanel === 'schedule'" class="panel-content panel-content-schedule">
+      <div class="card schedule-card centered-card">
         <div class="section-label">Schedule</div>
-        <p class="muted">Each point defines the target dim level and how many minutes the ramp should take before it lands.</p>
+        <p class="muted">Each point defines the target brightness level and how many minutes the ramp should take before it lands.</p>
 
         <div class="schedule-list">
           <div class="schedule-item" v-for="point in settings.schedulePoints" :key="point.id">
@@ -148,8 +197,14 @@ onStartupStateChanged((payload) => {
               <input type="time" step="60" v-model="point.timeOfDay" />
             </label>
             <label class="field">
-              <span>Dim %</span>
-              <InputNumber v-model="point.targetDimPercent" :min="0" :max="95" fluid />
+              <span>Brightness %</span>
+              <InputNumber
+                :model-value="toBrightnessPercent(point.targetDimPercent)"
+                @update:model-value="point.targetDimPercent = toDimPercent($event ?? 100)"
+                :min="5"
+                :max="100"
+                fluid
+              />
             </label>
             <label class="field">
               <span>Fade min</span>
@@ -161,9 +216,11 @@ onStartupStateChanged((payload) => {
 
         <Button label="Add Schedule Point" severity="secondary" variant="outlined" @click="addSchedulePoint" />
       </div>
+    </section>
 
-      <div class="side-column">
-        <div class="card">
+    <section v-else class="panel-content panel-content-settings">
+      <div class="settings-stack">
+        <div class="card centered-card settings-card">
           <div class="section-label">Appearance</div>
           <label class="field">
             <span>Color scheme</span>
@@ -178,7 +235,7 @@ onStartupStateChanged((payload) => {
           <p class="muted">If you leave this on Follow system, PrimeVue tracks the operating system color scheme.</p>
         </div>
 
-        <div class="card">
+        <div class="card centered-card settings-card">
           <div class="section-label">Automation</div>
           <label class="field checkbox-field">
             <span>Enable automatic schedule</span>
@@ -193,26 +250,26 @@ onStartupStateChanged((payload) => {
           </label>
           <p class="muted">{{ startupState?.statusText ?? "Loading startup state..." }}</p>
           <label class="field">
-            <span>Hotkey step size</span>
+            <span>Brightness step size</span>
             <Slider v-model="settings.dimStepPercent" :min="1" :max="25" :step="1" />
           </label>
-          <p class="muted">{{ dimSummary }}</p>
+          <p class="muted">{{ brightnessStepSummary }}</p>
         </div>
 
-        <div class="card">
+        <div class="card centered-card settings-card">
           <div class="section-label">Hotkeys</div>
           <label class="field">
-            <span>Dim more key</span>
+            <span>Decrease brightness key</span>
             <InputText v-model="settings.manualHotkeys.dimMore.key" fluid />
           </label>
           <label class="field">
-            <span>Dim less key</span>
+            <span>Increase brightness key</span>
             <InputText v-model="settings.manualHotkeys.dimLess.key" fluid />
           </label>
           <p class="muted">Modifier handling is preserved in the backend JSON contract; this first pass exposes the key names directly.</p>
         </div>
 
-        <div class="card">
+        <div class="card centered-card settings-card">
           <div class="section-label">Actions</div>
           <div class="action-row action-row-buttons">
             <Button label="Save Settings" @click="save" />
