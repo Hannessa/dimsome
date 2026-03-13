@@ -5,14 +5,18 @@ use tauri::{AppHandle, Emitter};
 use tokio::sync::RwLock;
 
 use crate::{
-    models::{AppSettings, EffectiveDimMode, EffectiveDimState, ManualOverrideSession},
+    models::{
+        AppSettings, DimmingCapabilities, DimmingMethod, EffectiveDimMode, EffectiveDimState,
+        ManualOverrideSession,
+    },
     schedule::{get_effective_dim, now_fixed, normalize_settings, resolve_state},
     settings,
-    windows::DimmingManager,
+    windows::{probe_dimming_capabilities, DimmingManager},
 };
 
 pub struct RuntimeState {
     pub settings: AppSettings,
+    pub dimming_capabilities: DimmingCapabilities,
     pub current_state: EffectiveDimState,
     pub manual_dim_percent: Option<f64>,
     pub manual_override_until: Option<DateTime<chrono::FixedOffset>>,
@@ -23,8 +27,12 @@ pub struct RuntimeState {
 
 impl RuntimeState {
     fn new(settings: AppSettings) -> Self {
+        let dimming_capabilities = probe_dimming_capabilities();
+        let settings = coerce_settings_for_capabilities(normalize_settings(settings), &dimming_capabilities);
+
         Self {
             settings,
+            dimming_capabilities,
             current_state: EffectiveDimState {
                 mode: EffectiveDimMode::Auto,
                 current_dim_percent: 0.0,
@@ -43,7 +51,7 @@ pub type SharedState = Arc<RwLock<RuntimeState>>;
 
 pub fn initialize_state() -> SharedState {
     let settings = settings::load_settings();
-    Arc::new(RwLock::new(RuntimeState::new(normalize_settings(settings))))
+    Arc::new(RwLock::new(RuntimeState::new(settings)))
 }
 
 pub async fn refresh_state(shared: &SharedState, app: Option<&AppHandle>) -> EffectiveDimState {
@@ -94,7 +102,8 @@ pub fn start_loop(shared: SharedState, app: AppHandle) {
 }
 
 pub async fn update_settings(shared: &SharedState, app: &AppHandle, settings: AppSettings) -> Result<AppSettings, String> {
-    let saved = settings::save_settings(&settings)?;
+    let capabilities = shared.read().await.dimming_capabilities.clone();
+    let saved = settings::save_settings(&coerce_settings_for_capabilities(settings, &capabilities))?;
     {
         let mut state = shared.write().await;
         state.settings = saved.clone();
@@ -147,4 +156,15 @@ pub async fn resume(shared: &SharedState, app: &AppHandle) -> EffectiveDimState 
         state.manual_override_until = None;
     }
     refresh_state(shared, Some(app)).await
+}
+
+fn coerce_settings_for_capabilities(
+    mut settings: AppSettings,
+    capabilities: &DimmingCapabilities,
+) -> AppSettings {
+    if !capabilities.magnification_available && settings.dimming_method == DimmingMethod::Magnification {
+        settings.dimming_method = DimmingMethod::Overlay;
+    }
+
+    settings
 }

@@ -16,6 +16,10 @@ use windows::{
         System::LibraryLoader::GetModuleHandleW,
         UI::{
             ColorSystem::SetDeviceGammaRamp,
+            Magnification::{
+                MagInitialize, MagSetFullscreenColorEffect, MagSetFullscreenTransform,
+                MagUninitialize, MAGCOLOREFFECT,
+            },
             WindowsAndMessaging::{
                 CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, PeekMessageW,
                 RegisterClassW, SetLayeredWindowAttributes, SetWindowPos, ShowWindow,
@@ -28,9 +32,16 @@ use windows::{
     },
 };
 
-use crate::{models::DimmingMethod, schedule::clamp_dim_precise};
+use crate::{
+    models::{DimmingCapabilities, DimmingMethod},
+    schedule::clamp_dim_precise,
+};
 
 const DISPLAY_DRIVER_NAME: &str = "DISPLAY";
+const MAGNIFICATION_AVAILABLE_TEXT: &str =
+    "Magnification uses a full-desktop Windows color effect without zoom and affects all displays at once.";
+const MAGNIFICATION_UNAVAILABLE_TEXT: &str =
+    "Magnification is unavailable in this process/runtime and has been disabled.";
 type GammaRamp = [[u16; 256]; 3];
 
 enum DimmingCommand {
@@ -284,6 +295,95 @@ impl GammaEngine {
     }
 }
 
+#[derive(Default)]
+struct MagnificationEngine {
+    initialized: bool,
+}
+
+impl MagnificationEngine {
+    fn ensure_initialized(&mut self) -> bool {
+        if self.initialized {
+            return true;
+        }
+
+        let success = unsafe { MagInitialize() }.as_bool();
+        if !success {
+            eprintln!("Failed to initialize Windows Magnification.");
+            return false;
+        }
+
+        self.initialized = true;
+        true
+    }
+
+    fn apply(&mut self, dim_percent: f64) -> bool {
+        if !self.ensure_initialized() {
+            return true;
+        }
+
+        let mut had_failures = false;
+        let effect = build_magnification_effect(dim_percent);
+
+        if !unsafe { MagSetFullscreenTransform(1.0, 0, 0) }.as_bool() {
+            eprintln!("Failed to set Magnification fullscreen transform.");
+            had_failures = true;
+        }
+
+        if !unsafe { MagSetFullscreenColorEffect(&effect) }.as_bool() {
+            eprintln!("Failed to apply Magnification color effect.");
+            had_failures = true;
+        }
+
+        had_failures
+    }
+
+    fn shutdown(&mut self) {
+        if !self.initialized {
+            return;
+        }
+
+        let identity = build_identity_magnification_effect();
+
+        if !unsafe { MagSetFullscreenTransform(1.0, 0, 0) }.as_bool() {
+            eprintln!("Failed to reset Magnification fullscreen transform.");
+        }
+
+        if !unsafe { MagSetFullscreenColorEffect(&identity) }.as_bool() {
+            eprintln!("Failed to reset Magnification color effect.");
+        }
+
+        if !unsafe { MagUninitialize() }.as_bool() {
+            eprintln!("Failed to uninitialize Windows Magnification.");
+        }
+
+        self.initialized = false;
+    }
+}
+
+pub fn probe_dimming_capabilities() -> DimmingCapabilities {
+    let initialized = unsafe { MagInitialize() }.as_bool();
+    if !initialized {
+        return DimmingCapabilities {
+            magnification_available: false,
+            magnification_status_text: MAGNIFICATION_UNAVAILABLE_TEXT.to_string(),
+        };
+    }
+
+    let uninitialized = unsafe { MagUninitialize() }.as_bool();
+    if !uninitialized {
+        eprintln!("Magnification capability probe could not uninitialize cleanly.");
+        return DimmingCapabilities {
+            magnification_available: false,
+            magnification_status_text: MAGNIFICATION_UNAVAILABLE_TEXT.to_string(),
+        };
+    }
+
+    DimmingCapabilities {
+        magnification_available: true,
+        magnification_status_text: MAGNIFICATION_AVAILABLE_TEXT.to_string(),
+    }
+}
+
 unsafe extern "system" fn overlay_window_proc(
     hwnd: HWND,
     message: u32,
@@ -307,6 +407,7 @@ fn dimming_thread(receiver: mpsc::Receiver<DimmingCommand>) {
 
     let mut overlay_engine = OverlayEngine::new(class_name);
     let mut gamma_engine = GammaEngine::default();
+    let mut magnification_engine = MagnificationEngine::default();
     let mut active_method: Option<DimmingMethod> = None;
     let mut last_applied_dim_percent: Option<f64> = None;
     let mut needs_apply = true;
@@ -315,18 +416,29 @@ fn dimming_thread(receiver: mpsc::Receiver<DimmingCommand>) {
         match receiver.recv_timeout(Duration::from_millis(250)) {
             Ok(DimmingCommand::Sync { method, dim_percent }) => {
                 let dim_percent = clamp_dim_precise(dim_percent);
-                let monitors = enumerate_monitors();
 
                 if active_method.as_ref() != Some(&method) {
-                    deactivate_active_method(active_method.as_ref(), &mut overlay_engine, &mut gamma_engine);
+                    deactivate_active_method(
+                        active_method.as_ref(),
+                        &mut overlay_engine,
+                        &mut gamma_engine,
+                        &mut magnification_engine,
+                    );
                     active_method = Some(method.clone());
                     last_applied_dim_percent = None;
                     needs_apply = true;
                 }
 
                 let monitors_changed = match method {
-                    DimmingMethod::Overlay => overlay_engine.sync_monitors(&monitors),
-                    DimmingMethod::Gamma => gamma_engine.sync_monitors(&monitors),
+                    DimmingMethod::Overlay => {
+                        let monitors = enumerate_monitors();
+                        overlay_engine.sync_monitors(&monitors)
+                    }
+                    DimmingMethod::Gamma => {
+                        let monitors = enumerate_monitors();
+                        gamma_engine.sync_monitors(&monitors)
+                    }
+                    DimmingMethod::Magnification => false,
                 };
 
                 if monitors_changed || last_applied_dim_percent != Some(dim_percent) {
@@ -340,6 +452,7 @@ fn dimming_thread(receiver: mpsc::Receiver<DimmingCommand>) {
                             false
                         }
                         DimmingMethod::Gamma => gamma_engine.apply(dim_percent),
+                        DimmingMethod::Magnification => magnification_engine.apply(dim_percent),
                     };
                     last_applied_dim_percent = Some(dim_percent);
                     needs_apply = had_failures;
@@ -347,21 +460,32 @@ fn dimming_thread(receiver: mpsc::Receiver<DimmingCommand>) {
             }
             Ok(DimmingCommand::ResetAndAck { method, reply }) => {
                 let dim_percent = 0.0;
-                let monitors = enumerate_monitors();
 
                 if active_method.as_ref() != Some(&method) {
-                    deactivate_active_method(active_method.as_ref(), &mut overlay_engine, &mut gamma_engine);
+                    deactivate_active_method(
+                        active_method.as_ref(),
+                        &mut overlay_engine,
+                        &mut gamma_engine,
+                        &mut magnification_engine,
+                    );
                     active_method = Some(method.clone());
                 }
 
                 match method {
                     DimmingMethod::Overlay => {
+                        let monitors = enumerate_monitors();
                         let _ = overlay_engine.sync_monitors(&monitors);
                         overlay_engine.apply(dim_percent);
                     }
                     DimmingMethod::Gamma => {
+                        let monitors = enumerate_monitors();
                         let _ = gamma_engine.sync_monitors(&monitors);
                         let _ = gamma_engine.apply(dim_percent);
+                    }
+                    DimmingMethod::Magnification => {
+                        let _ = magnification_engine.apply(dim_percent);
+                        magnification_engine.shutdown();
+                        active_method = None;
                     }
                 }
 
@@ -376,17 +500,24 @@ fn dimming_thread(receiver: mpsc::Receiver<DimmingCommand>) {
         pump_messages();
     }
 
-    deactivate_active_method(active_method.as_ref(), &mut overlay_engine, &mut gamma_engine);
+    deactivate_active_method(
+        active_method.as_ref(),
+        &mut overlay_engine,
+        &mut gamma_engine,
+        &mut magnification_engine,
+    );
 }
 
 fn deactivate_active_method(
     method: Option<&DimmingMethod>,
     overlay_engine: &mut OverlayEngine,
     gamma_engine: &mut GammaEngine,
+    magnification_engine: &mut MagnificationEngine,
 ) {
     match method {
         Some(DimmingMethod::Overlay) => overlay_engine.shutdown(),
         Some(DimmingMethod::Gamma) => gamma_engine.shutdown(),
+        Some(DimmingMethod::Magnification) => magnification_engine.shutdown(),
         None => {}
     }
 }
@@ -469,6 +600,44 @@ fn build_gamma_ramp(dim_percent: f64) -> GammaRamp {
     ramp
 }
 
+fn build_identity_magnification_effect() -> MAGCOLOREFFECT {
+    build_magnification_effect(0.0)
+}
+
+fn build_magnification_effect(dim_percent: f64) -> MAGCOLOREFFECT {
+    let brightness_scale = (1.0 - (clamp_dim_precise(dim_percent) / 100.0)) as f32;
+
+    MAGCOLOREFFECT {
+        transform: [
+            brightness_scale,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            brightness_scale,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            brightness_scale,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+        ],
+    }
+}
+
 fn enumerate_monitors() -> Vec<MonitorInfo> {
     unsafe extern "system" fn callback(
         hmonitor: HMONITOR,
@@ -517,6 +686,13 @@ fn widestr(value: &str) -> Vec<u16> {
 mod tests {
     use super::*;
 
+    fn assert_close(left: f32, right: f32) {
+        assert!(
+            (left - right).abs() < 1e-6,
+            "expected {left} to be close to {right}"
+        );
+    }
+
     #[test]
     fn gamma_ramp_is_identity_at_zero_dim() {
         let ramp = build_gamma_ramp(0.0);
@@ -551,5 +727,44 @@ mod tests {
                 assert!(value <= u16::MAX);
             }
         }
+    }
+
+    #[test]
+    fn magnification_effect_is_identity_at_zero_dim() {
+        let effect = build_magnification_effect(0.0);
+
+        assert_close(effect.transform[0], 1.0);
+        assert_close(effect.transform[6], 1.0);
+        assert_close(effect.transform[12], 1.0);
+        assert_close(effect.transform[18], 1.0);
+        assert_close(effect.transform[24], 1.0);
+    }
+
+    #[test]
+    fn magnification_effect_darkens_monotonically_as_dim_increases() {
+        let lighter_effect = build_magnification_effect(25.0);
+        let darker_effect = build_magnification_effect(75.0);
+
+        assert!(lighter_effect.transform[0] > darker_effect.transform[0]);
+        assert_close(lighter_effect.transform[0], lighter_effect.transform[6]);
+        assert_close(lighter_effect.transform[6], lighter_effect.transform[12]);
+        assert_close(darker_effect.transform[0], darker_effect.transform[6]);
+        assert_close(darker_effect.transform[6], darker_effect.transform[12]);
+    }
+
+    #[test]
+    fn magnification_effect_preserves_alpha_and_translation_rows() {
+        let effect = build_magnification_effect(60.0);
+
+        assert_close(effect.transform[15], 0.0);
+        assert_close(effect.transform[16], 0.0);
+        assert_close(effect.transform[17], 0.0);
+        assert_close(effect.transform[18], 1.0);
+        assert_close(effect.transform[19], 0.0);
+        assert_close(effect.transform[20], 0.0);
+        assert_close(effect.transform[21], 0.0);
+        assert_close(effect.transform[22], 0.0);
+        assert_close(effect.transform[23], 0.0);
+        assert_close(effect.transform[24], 1.0);
     }
 }

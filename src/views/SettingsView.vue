@@ -10,6 +10,7 @@ import AppSlider from "../components/AppSlider.vue";
 import ToggleSwitch from "primevue/toggleswitch";
 import {
   applyManualDim,
+  getDimmingCapabilities,
   getEffectiveState,
   getSettings,
   getStartupState,
@@ -22,12 +23,14 @@ import { syncAppearanceMode } from "../lib/theme";
 import type {
   AppSettings,
   AppearanceMode,
+  DimmingCapabilities,
   DimmingMethod,
   EffectiveDimState,
   StartupRegistrationState
 } from "../types/app";
 
 const settings = ref<AppSettings | null>(null);
+const dimmingCapabilities = ref<DimmingCapabilities | null>(null);
 const currentState = ref<EffectiveDimState | null>(null);
 const startupState = ref<StartupRegistrationState | null>(null);
 const sliderBrightness = ref(100);
@@ -43,10 +46,6 @@ const appearanceModeOptions: Array<{ label: string; value: "system" | Appearance
   { label: "Light", value: "light" },
   { label: "Dark", value: "dark" }
 ];
-const dimmingMethodOptions: Array<{ label: string; value: DimmingMethod }> = [
-  { label: "Black overlay", value: "overlay" },
-  { label: "Gamma / LUT (experimental)", value: "gamma" }
-];
 const panelOptions: Array<{ label: string; value: "schedule" | "settings" }> = [
   { label: "Schedule", value: "schedule" },
   { label: "Settings", value: "settings" }
@@ -57,6 +56,20 @@ const sectionLabelClass = "text-[0.9rem] uppercase tracking-[0.04em] text-[var(-
 const fieldClass = "grid gap-1.5";
 const fieldLabelClass = "text-[0.9rem] uppercase tracking-[0.04em] text-[var(--muted)]";
 
+const dimmingMethodOptions = computed<Array<{ label: string; value: DimmingMethod; disabled?: boolean }>>(() => [
+  { label: "Black overlay", value: "overlay" },
+  { label: "Gamma / LUT (experimental)", value: "gamma" },
+  {
+    label: "Magnification (experimental)",
+    value: "magnification",
+    disabled: !(dimmingCapabilities.value?.magnificationAvailable ?? false)
+  }
+]);
+const dimmingMethodSummary = computed(() => {
+  const gammaText = "Gamma / LUT may interact with Night Light, HDR, or display calibration.";
+  const magnificationText = dimmingCapabilities.value?.magnificationStatusText ?? "Checking Magnification support...";
+  return `${gammaText} ${magnificationText}`;
+});
 const brightnessStepSummary = computed(() => `${settings.value?.dimStepPercent ?? 0}% per hotkey press`);
 const currentBrightnessPercent = computed(() => 100 - Math.round(currentState.value?.currentDimPercent ?? 0));
 const isFollowingSchedule = computed(() => (currentState.value?.mode ?? "Auto") === "Auto");
@@ -225,13 +238,15 @@ async function applyBrightnessWhileDragging(nextBrightness: number) {
 }
 
 async function initialize() {
-  const [loadedSettings, loadedState, loadedStartupState] = await Promise.all([
+  const [loadedSettings, loadedCapabilities, loadedState, loadedStartupState] = await Promise.all([
     getSettings(),
+    getDimmingCapabilities(),
     getEffectiveState(),
     getStartupState()
   ]);
 
   settings.value = loadedSettings;
+  dimmingCapabilities.value = loadedCapabilities;
   currentState.value = loadedState;
   startupState.value = loadedStartupState;
   lastSavedSnapshot.value = serializeSettings(loadedSettings);
@@ -297,18 +312,6 @@ watch(
           @slideend="applyBrightnessFromSlider"
         />
       </div>
-      <!--<div class="inline-flex items-center justify-center gap-2.5 text-base text-[var(--muted)]">
-        <span>{{ !settings.scheduleEnabled ? "Schedule disabled" : ( isFollowingSchedule ? "Following schedule" : "Schedule paused" ) }}</span>
-        <Button
-          v-if="!isFollowingSchedule || !settings.scheduleEnabled"
-          label="▶"
-          text
-          rounded
-          aria-label="Resume schedule"
-          class="!w-auto min-w-10"
-          @click="resumeSchedule"
-        />
-      </div>-->
     </section>
 
     <section class="mx-auto mt-[22px] grid w-full max-w-5xl flex-none justify-items-center">
@@ -328,14 +331,6 @@ watch(
     >
       <div :class="[cardClass, 'flex min-h-0 w-full max-w-[980px] flex-col overflow-hidden']">
         <div class="flex flex-wrap items-start justify-between gap-4">
-          <!--<div>
-            <div :class="sectionLabelClass">Schedule</div>
-            <p class="mt-2 text-[var(--muted)]">
-              Each point defines the target brightness level and how many minutes the ramp should take before it lands.
-            </p>
-          </div>-->
-          
-          
           <label class="flex items-center gap-3 px-4 py-3 text-left">
             <ToggleSwitch v-model="settings.scheduleEnabled" />
             <span class="text-[0.9rem] font-semibold uppercase tracking-[0.04em] text-[var(--muted)]">Enable schedule</span>
@@ -343,15 +338,6 @@ watch(
 
           <div v-if="!isFollowingSchedule" class="inline-flex items-center justify-center gap-2.5 text-base text-[var(--muted)] float-right" @click="resumeSchedule">
             <span>{{ !settings.scheduleEnabled ? "Schedule disabled" : ( isFollowingSchedule ? "Following schedule" : "Schedule paused (click to resume)" ) }}</span>
-           <!--<Button
-              v-if="!isFollowingSchedule || !settings.scheduleEnabled"
-              label="▶"
-              text
-              rounded
-              aria-label="Resume schedule"
-              class="!w-auto min-w-10 w-1 h-1"
-              @click="resumeSchedule"
-            />-->
           </div>
         </div>
 
@@ -428,8 +414,6 @@ watch(
             @click="addSchedulePoint"
           />
         </div>
-
-        
       </div>
     </section>
 
@@ -463,11 +447,12 @@ watch(
             :options="dimmingMethodOptions"
             option-label="label"
             option-value="value"
+            option-disabled="disabled"
             fluid
           />
         </label>
         <p class="mt-3 text-[var(--muted)]">
-          Gamma / LUT is experimental and may interact with Night Light, HDR, or display calibration. Black overlay still goes darkest.
+          {{ dimmingMethodSummary }}
         </p>
       </div>
 

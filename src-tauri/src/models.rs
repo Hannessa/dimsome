@@ -2,7 +2,7 @@ use chrono::{DateTime, FixedOffset};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-pub const CURRENT_VERSION: i32 = 2;
+pub const CURRENT_VERSION: i32 = 3;
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -16,6 +16,7 @@ pub enum AppearanceMode {
 pub enum DimmingMethod {
     Overlay,
     Gamma,
+    Magnification,
 }
 
 pub fn default_dimming_method() -> DimmingMethod {
@@ -148,6 +149,13 @@ pub struct StartupRegistrationState {
     pub status_text: String,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct DimmingCapabilities {
+    pub magnification_available: bool,
+    pub magnification_status_text: String,
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::json;
@@ -179,5 +187,13 @@ mod tests {
         let settings: AppSettings = serde_json::from_value(json).expect("legacy settings should deserialize");
 
         assert_eq!(settings.dimming_method, DimmingMethod::Overlay);
+    }
+
+    #[test]
+    fn dimming_method_supports_magnification_value() {
+        let json = json!("magnification");
+        let method: DimmingMethod = serde_json::from_value(json).expect("magnification should deserialize");
+
+        assert_eq!(method, DimmingMethod::Magnification);
     }
 }

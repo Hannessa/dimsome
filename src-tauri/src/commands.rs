@@ -2,7 +2,7 @@ use tauri::{AppHandle, Emitter, Manager, State, Window};
 
 use crate::{
     hotkeys::HotkeyManager,
-    models::{AppSettings, EffectiveDimState, StartupRegistrationState},
+    models::{AppSettings, DimmingCapabilities, EffectiveDimState, StartupRegistrationState},
     startup,
     state::{self, SharedState},
 };
@@ -10,6 +10,11 @@ use crate::{
 #[tauri::command]
 pub async fn get_settings(state: State<'_, SharedState>) -> Result<AppSettings, String> {
     Ok(state.read().await.settings.clone())
+}
+
+#[tauri::command]
+pub async fn get_dimming_capabilities(state: State<'_, SharedState>) -> Result<DimmingCapabilities, String> {
+    Ok(state.read().await.dimming_capabilities.clone())
 }
 
 #[tauri::command]

@@ -1,8 +1,17 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { AppSettings, EffectiveDimState, StartupRegistrationState } from "../types/app";
+import type {
+  AppSettings,
+  DimmingCapabilities,
+  EffectiveDimState,
+  StartupRegistrationState
+} from "../types/app";
 
 export function getSettings() {
   return invoke<AppSettings>("get_settings");
+}
+
+export function getDimmingCapabilities() {
+  return invoke<DimmingCapabilities>("get_dimming_capabilities");
 }
 
 export function saveSettings(settings: AppSettings) {

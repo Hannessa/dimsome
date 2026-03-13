@@ -18,7 +18,7 @@ export interface SchedulePoint {
 }
 
 export type AppearanceMode = "light" | "dark";
-export type DimmingMethod = "overlay" | "gamma";
+export type DimmingMethod = "overlay" | "gamma" | "magnification";
 
 export interface AppSettings {
   version: number;
@@ -29,6 +29,11 @@ export interface AppSettings {
   appearanceMode?: AppearanceMode;
   manualHotkeys: ManualHotkeys;
   schedulePoints: SchedulePoint[];
+}
+
+export interface DimmingCapabilities {
+  magnificationAvailable: boolean;
+  magnificationStatusText: string;
 }
 
 export type EffectiveDimMode = "Auto" | "Manual" | "Paused";

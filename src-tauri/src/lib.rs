@@ -68,6 +68,7 @@ pub fn run() {
         .manage(initialize_state())
         .invoke_handler(tauri::generate_handler![
             commands::get_settings,
+            commands::get_dimming_capabilities,
             commands::save_settings,
             commands::get_effective_state,
             commands::apply_manual_dim,
