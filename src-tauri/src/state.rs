@@ -8,7 +8,7 @@ use crate::{
     models::{AppSettings, EffectiveDimMode, EffectiveDimState, ManualOverrideSession},
     schedule::{get_effective_dim, now_fixed, normalize_settings, resolve_state},
     settings,
-    windows::OverlayManager,
+    windows::DimmingManager,
 };
 
 pub struct RuntimeState {
@@ -18,7 +18,7 @@ pub struct RuntimeState {
     pub manual_override_until: Option<DateTime<chrono::FixedOffset>>,
     pub schedule_paused: bool,
     pub paused_dim_percent: f64,
-    pub overlay_manager: OverlayManager,
+    pub dimming_manager: DimmingManager,
 }
 
 impl RuntimeState {
@@ -34,7 +34,7 @@ impl RuntimeState {
             manual_override_until: None,
             schedule_paused: false,
             paused_dim_percent: 0.0,
-            overlay_manager: OverlayManager::new(),
+            dimming_manager: DimmingManager::new(),
         }
     }
 }
@@ -61,8 +61,9 @@ pub async fn refresh_state(shared: &SharedState, app: Option<&AppHandle>) -> Eff
     );
 
     state.current_state = next.clone();
-    state.overlay_manager.refresh();
-    state.overlay_manager.apply(next.current_dim_percent);
+    state
+        .dimming_manager
+        .sync(state.settings.dimming_method.clone(), next.current_dim_percent);
 
     if next.mode == EffectiveDimMode::Auto {
         state.manual_dim_percent = None;

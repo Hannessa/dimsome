@@ -19,7 +19,13 @@ import {
 } from "../lib/api";
 import { onSettingsSaved, onStartupStateChanged, onStateChanged } from "../lib/events";
 import { syncAppearanceMode } from "../lib/theme";
-import type { AppSettings, AppearanceMode, EffectiveDimState, StartupRegistrationState } from "../types/app";
+import type {
+  AppSettings,
+  AppearanceMode,
+  DimmingMethod,
+  EffectiveDimState,
+  StartupRegistrationState
+} from "../types/app";
 
 const settings = ref<AppSettings | null>(null);
 const currentState = ref<EffectiveDimState | null>(null);
@@ -36,6 +42,10 @@ const appearanceModeOptions: Array<{ label: string; value: "system" | Appearance
   { label: "Follow system", value: "system" },
   { label: "Light", value: "light" },
   { label: "Dark", value: "dark" }
+];
+const dimmingMethodOptions: Array<{ label: string; value: DimmingMethod }> = [
+  { label: "Black overlay", value: "overlay" },
+  { label: "Gamma / LUT (experimental)", value: "gamma" }
 ];
 const panelOptions: Array<{ label: string; value: "schedule" | "settings" }> = [
   { label: "Schedule", value: "schedule" },
@@ -98,6 +108,7 @@ function serializeAutosaveSettings(model: AppSettings) {
     startupEnabled: model.startupEnabled,
     scheduleEnabled: model.scheduleEnabled,
     dimStepPercent: model.dimStepPercent,
+    dimmingMethod: model.dimmingMethod,
     appearanceMode: model.appearanceMode ?? null,
     schedulePoints: model.schedulePoints
   });
@@ -440,6 +451,23 @@ watch(
         </label>
         <p class="mt-3 text-[var(--muted)]">
           If you leave this on Follow system, PrimeVue tracks the operating system color scheme.
+        </p>
+      </div>
+
+      <div :class="cardClass">
+        <div :class="sectionLabelClass">Dimming</div>
+        <label :class="[fieldClass, 'mt-4']">
+          <span :class="fieldLabelClass">Method</span>
+          <Select
+            v-model="settings.dimmingMethod"
+            :options="dimmingMethodOptions"
+            option-label="label"
+            option-value="value"
+            fluid
+          />
+        </label>
+        <p class="mt-3 text-[var(--muted)]">
+          Gamma / LUT is experimental and may interact with Night Light, HDR, or display calibration. Black overlay still goes darkest.
         </p>
       </div>
 

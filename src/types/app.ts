@@ -18,12 +18,14 @@ export interface SchedulePoint {
 }
 
 export type AppearanceMode = "light" | "dark";
+export type DimmingMethod = "overlay" | "gamma";
 
 export interface AppSettings {
   version: number;
   startupEnabled: boolean;
   scheduleEnabled: boolean;
   dimStepPercent: number;
+  dimmingMethod: DimmingMethod;
   appearanceMode?: AppearanceMode;
   manualHotkeys: ManualHotkeys;
   schedulePoints: SchedulePoint[];

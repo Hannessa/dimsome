@@ -2,13 +2,24 @@ use chrono::{DateTime, FixedOffset};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-pub const CURRENT_VERSION: i32 = 1;
+pub const CURRENT_VERSION: i32 = 2;
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub enum AppearanceMode {
     Light,
     Dark,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum DimmingMethod {
+    Overlay,
+    Gamma,
+}
+
+pub fn default_dimming_method() -> DimmingMethod {
+    DimmingMethod::Overlay
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -18,6 +29,8 @@ pub struct AppSettings {
     pub startup_enabled: bool,
     pub schedule_enabled: bool,
     pub dim_step_percent: f64,
+    #[serde(default = "default_dimming_method")]
+    pub dimming_method: DimmingMethod,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub appearance_mode: Option<AppearanceMode>,
     pub manual_hotkeys: ManualHotkeys,
@@ -31,6 +44,7 @@ impl Default for AppSettings {
             startup_enabled: true,
             schedule_enabled: true,
             dim_step_percent: 5.0,
+            dimming_method: default_dimming_method(),
             appearance_mode: None,
             manual_hotkeys: ManualHotkeys::default(),
             schedule_points: vec![
@@ -132,4 +146,38 @@ pub struct StartupRegistrationState {
     pub is_enabled: bool,
     pub can_change: bool,
     pub status_text: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn app_settings_default_to_overlay_when_dimming_method_is_missing() {
+        let json = json!({
+            "version": 1,
+            "startupEnabled": true,
+            "scheduleEnabled": true,
+            "dimStepPercent": 5.0,
+            "manualHotkeys": {
+                "dimMore": {
+                    "enabled": true,
+                    "modifiers": "Alt",
+                    "key": "PageDown"
+                },
+                "dimLess": {
+                    "enabled": true,
+                    "modifiers": "Alt",
+                    "key": "PageUp"
+                }
+            },
+            "schedulePoints": []
+        });
+
+        let settings: AppSettings = serde_json::from_value(json).expect("legacy settings should deserialize");
+
+        assert_eq!(settings.dimming_method, DimmingMethod::Overlay);
+    }
 }
