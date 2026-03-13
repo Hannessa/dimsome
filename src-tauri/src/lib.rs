@@ -19,8 +19,8 @@ use crate::{
     state::{initialize_state, refresh_state, start_loop},
 };
 
-const SETTINGS_WINDOW_WIDTH: f64 = 1280.0;
-const SETTINGS_WINDOW_HEIGHT: f64 = 860.0;
+const SETTINGS_WINDOW_WIDTH: f64 = 896.0;
+const SETTINGS_WINDOW_HEIGHT: f64 = 602.0;
 const TRAY_ICON_WIDTH: u32 = 32;
 const TRAY_ICON_HEIGHT: u32 = 32;
 const TRAY_ICON_RGBA: &[u8] = include_bytes!("../icons/tray-icon.rgba");
@@ -163,3 +163,4 @@ pub fn run() {
         .run(tauri::generate_context!())
         .expect("error while running Dimsome Tauri");
 }
+
