@@ -6,7 +6,7 @@ use crate::models::{
 };
 
 pub fn clamp_dim_precise(value: f64) -> f64 {
-    ((value * 100.0).round() / 100.0).clamp(0.0, 95.0)
+    ((value * 100.0).round() / 100.0).clamp(0.0, 99.0)
 }
 
 pub fn normalize_settings(settings: AppSettings) -> AppSettings {
@@ -242,6 +242,13 @@ mod tests {
         }
     }
 
+
+    #[test]
+    fn clamp_dim_precise_rounds_to_hundredths_and_caps_at_ninety_nine() {
+        assert_eq!(clamp_dim_precise(-1.0), 0.0);
+        assert_eq!(clamp_dim_precise(99.999), 99.0);
+        assert_eq!(clamp_dim_precise(12.3456), 12.35);
+    }
     #[test]
     fn interpolates_within_transition_window() {
         let settings = AppSettings {
@@ -292,4 +299,5 @@ mod tests {
         assert_eq!(at_start.mode, EffectiveDimMode::Auto);
     }
 }
+
 

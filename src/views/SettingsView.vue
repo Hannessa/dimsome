@@ -27,6 +27,8 @@ const startupState = ref<StartupRegistrationState | null>(null);
 const statusMessage = ref("");
 const sliderBrightness = ref(100);
 const selectedPanel = ref<"schedule" | "settings">("schedule");
+const isApplyingSliderBrightness = ref(false);
+const pendingSliderBrightness = ref<number | null>(null);
 const appearanceModeOptions: Array<{ label: string; value: "system" | AppearanceMode }> = [
   { label: "Follow system", value: "system" },
   { label: "Light", value: "light" },
@@ -36,6 +38,11 @@ const panelOptions: Array<{ label: string; value: "schedule" | "settings" }> = [
   { label: "Schedule", value: "schedule" },
   { label: "Settings", value: "settings" }
 ];
+
+const cardClass = "glass-card rounded-[24px] p-5";
+const sectionLabelClass = "text-[0.9rem] uppercase tracking-[0.04em] text-[var(--muted)]";
+const fieldClass = "grid gap-1.5";
+const fieldLabelClass = "text-[0.9rem] uppercase tracking-[0.04em] text-[var(--muted)]";
 
 const brightnessStepSummary = computed(() => `${settings.value?.dimStepPercent ?? 0}% per hotkey press`);
 const currentBrightnessPercent = computed(() => 100 - Math.round(currentState.value?.currentDimPercent ?? 0));
@@ -53,15 +60,15 @@ const selectedAppearanceMode = computed({
 });
 
 function toBrightnessPercent(dimPercent: number) {
-  return 100 - Math.round(dimPercent);
+  return 100 - dimPercent;
 }
 
 function toDimPercent(brightnessPercent: number) {
-  return Math.min(95, Math.max(0, 100 - brightnessPercent));
+  return Math.min(99, Math.max(0, 100 - brightnessPercent));
 }
 
 function syncSliderToState(state: EffectiveDimState | null) {
-  sliderBrightness.value = 100 - Math.round(state?.currentDimPercent ?? 0);
+  sliderBrightness.value = 100 - (state?.currentDimPercent ?? 0);
 }
 
 function ensureSettings() {
@@ -92,9 +99,29 @@ function removeSchedulePoint(id: string) {
 
 async function applyBrightnessFromSlider(event: { value: number | number[] }) {
   const nextBrightness = Array.isArray(event.value) ? event.value[0] : event.value;
+  await applyBrightnessWhileDragging(nextBrightness);
+}
+
+async function applyBrightnessWhileDragging(nextBrightness: number) {
   sliderBrightness.value = nextBrightness;
-  currentState.value = await applyManualDim(toDimPercent(nextBrightness));
-  syncSliderToState(currentState.value);
+  pendingSliderBrightness.value = nextBrightness;
+
+  if (isApplyingSliderBrightness.value) {
+    return;
+  }
+
+  isApplyingSliderBrightness.value = true;
+
+  try {
+    while (pendingSliderBrightness.value !== null) {
+      const brightnessToApply = pendingSliderBrightness.value;
+      pendingSliderBrightness.value = null;
+      currentState.value = await applyManualDim(toDimPercent(brightnessToApply));
+      syncSliderToState(currentState.value);
+    }
+  } finally {
+    isApplyingSliderBrightness.value = false;
+  }
 }
 
 async function save() {
@@ -144,60 +171,80 @@ onStartupStateChanged((payload) => {
 </script>
 
 <template>
-  <main class="page page-settings" v-if="settings">
-    <section class="hero hero-centered">
-      <p class="eyebrow">Dimsome</p>
-      <div class="hero-brightness">{{ currentBrightnessPercent }}% brightness</div>
-      <div class="hero-slider-wrap">
+  <main
+    v-if="settings"
+    class="min-h-screen px-3 py-3 text-[var(--text)] sm:px-6 sm:py-6"
+  >
+
+    <p class="m-0 text-[0.9rem] uppercase tracking-[0.04em] text-[var(--muted)] float-left">Dimsome</p>
+
+    <section class="mx-auto grid max-w-5xl gap-[18px] text-center">
+      
+      <div class="text-[clamp(2rem,4vw,3.5rem)] leading-none font-bold text-[var(--accent)]">
+        {{ currentBrightnessPercent }}% brightness
+      </div>
+      <div class="glass-card mx-auto w-full max-w-[720px] rounded-full px-6 py-[18px] max-md:rounded-[28px] max-md:px-[18px] max-md:py-4">
         <Slider
           v-model="sliderBrightness"
-          class="hero-slider"
+          class="w-full"
           :min="5"
           :max="100"
-          :step="1"
+          :step="0.1"
+          @update:model-value="(value) => applyBrightnessWhileDragging(Array.isArray(value) ? value[0] : value)"
           @slideend="applyBrightnessFromSlider"
         />
       </div>
-      <div class="hero-status-row">
-        <span>{{ isFollowingSchedule ? "Following schedule" : "Manual override" }}</span>
+      <div class="inline-flex items-center justify-center gap-2.5 text-base text-[var(--muted)]">
+        <span>{{ isFollowingSchedule ? "Following schedule" : "Schedule paused" }}</span>
         <Button
           v-if="!isFollowingSchedule"
           label="▶"
           text
           rounded
           aria-label="Resume schedule"
+          class="!w-auto min-w-10"
           @click="resumeSchedule"
         />
       </div>
     </section>
 
-    <section class="panel-switcher">
+    <section class="mx-auto mt-[22px] grid max-w-5xl justify-items-center">
       <SelectButton
         v-model="selectedPanel"
         :options="panelOptions"
         option-label="label"
         option-value="value"
         :allow-empty="false"
+        class="w-full max-w-md"
       />
     </section>
 
-    <section v-if="selectedPanel === 'schedule'" class="panel-content panel-content-schedule">
-      <div class="card schedule-card centered-card">
-        <div class="section-label">Schedule</div>
-        <p class="muted">Each point defines the target brightness level and how many minutes the ramp should take before it lands.</p>
+    <section
+      v-if="selectedPanel === 'schedule'"
+      class="mx-auto mt-[22px] grid max-w-5xl justify-items-center"
+    >
+      <div :class="[cardClass, 'w-full max-w-[980px]']">
+        <div :class="sectionLabelClass">Schedule</div>
+        <p class="mt-2 text-[var(--muted)]">
+          Each point defines the target brightness level and how many minutes the ramp should take before it lands.
+        </p>
 
-        <div class="schedule-list">
-          <div class="schedule-item" v-for="point in settings.schedulePoints" :key="point.id">
-            <label class="field checkbox-field">
-              <span>Enabled</span>
+        <div class="mt-[18px] grid gap-[18px]">
+          <div
+            v-for="point in settings.schedulePoints"
+            :key="point.id"
+            class="glass-card-strong grid items-end gap-3 rounded-[18px] p-[14px] xl:grid-cols-[100px_minmax(0,1fr)_140px_140px_auto]"
+          >
+            <label :class="[fieldClass, 'grid-cols-[1fr_auto] items-center']">
+              <span :class="fieldLabelClass">Enabled</span>
               <ToggleSwitch v-model="point.enabled" />
             </label>
-            <label class="field">
-              <span>Time</span>
+            <label :class="fieldClass">
+              <span :class="fieldLabelClass">Time</span>
               <input type="time" step="60" v-model="point.timeOfDay" />
             </label>
-            <label class="field">
-              <span>Brightness %</span>
+            <label :class="fieldClass">
+              <span :class="fieldLabelClass">Brightness %</span>
               <InputNumber
                 :model-value="toBrightnessPercent(point.targetDimPercent)"
                 @update:model-value="point.targetDimPercent = toDimPercent($event ?? 100)"
@@ -206,79 +253,101 @@ onStartupStateChanged((payload) => {
                 fluid
               />
             </label>
-            <label class="field">
-              <span>Fade min</span>
+            <label :class="fieldClass">
+              <span :class="fieldLabelClass">Fade min</span>
               <InputNumber v-model="point.transitionMinutes" :min="0" :max="1439" fluid />
             </label>
-            <Button label="Remove" severity="secondary" variant="outlined" @click="removeSchedulePoint(point.id)" />
+            <Button
+              label="Remove"
+              severity="secondary"
+              variant="outlined"
+              class="max-xl:w-full"
+              @click="removeSchedulePoint(point.id)"
+            />
           </div>
         </div>
 
-        <Button label="Add Schedule Point" severity="secondary" variant="outlined" @click="addSchedulePoint" />
+        <Button
+          label="Add Schedule Point"
+          severity="secondary"
+          variant="outlined"
+          class="mt-[18px] sm:w-auto"
+          @click="addSchedulePoint"
+        />
       </div>
     </section>
 
-    <section v-else class="panel-content panel-content-settings">
-      <div class="settings-stack">
-        <div class="card centered-card settings-card">
-          <div class="section-label">Appearance</div>
-          <label class="field">
-            <span>Color scheme</span>
-            <Select
-              v-model="selectedAppearanceMode"
-              :options="appearanceModeOptions"
-              option-label="label"
-              option-value="value"
-              fluid
-            />
-          </label>
-          <p class="muted">If you leave this on Follow system, PrimeVue tracks the operating system color scheme.</p>
-        </div>
+    <section
+      v-else
+      class="mx-auto mt-[22px] grid max-w-[760px] gap-[18px]"
+    >
+      <div :class="cardClass">
+        <div :class="sectionLabelClass">Appearance</div>
+        <label :class="[fieldClass, 'mt-4']">
+          <span :class="fieldLabelClass">Color scheme</span>
+          <Select
+            v-model="selectedAppearanceMode"
+            :options="appearanceModeOptions"
+            option-label="label"
+            option-value="value"
+            fluid
+          />
+        </label>
+        <p class="mt-3 text-[var(--muted)]">
+          If you leave this on Follow system, PrimeVue tracks the operating system color scheme.
+        </p>
+      </div>
 
-        <div class="card centered-card settings-card">
-          <div class="section-label">Automation</div>
-          <label class="field checkbox-field">
-            <span>Enable automatic schedule</span>
-            <ToggleSwitch v-model="settings.scheduleEnabled" />
-          </label>
-          <label class="field checkbox-field">
-            <span>Launch at sign-in</span>
-            <ToggleSwitch
-              v-model="settings.startupEnabled"
-              :disabled="startupState ? !startupState.canChange : false"
-            />
-          </label>
-          <p class="muted">{{ startupState?.statusText ?? "Loading startup state..." }}</p>
-          <label class="field">
-            <span>Brightness step size</span>
-            <Slider v-model="settings.dimStepPercent" :min="1" :max="25" :step="1" />
-          </label>
-          <p class="muted">{{ brightnessStepSummary }}</p>
-        </div>
+      <div :class="cardClass">
+        <div :class="sectionLabelClass">Automation</div>
+        <label :class="[fieldClass, 'mt-4 grid-cols-[1fr_auto] items-center']">
+          <span :class="fieldLabelClass">Enable automatic schedule</span>
+          <ToggleSwitch v-model="settings.scheduleEnabled" />
+        </label>
+        <label :class="[fieldClass, 'mt-4 grid-cols-[1fr_auto] items-center']">
+          <span :class="fieldLabelClass">Launch at sign-in</span>
+          <ToggleSwitch
+            v-model="settings.startupEnabled"
+            :disabled="startupState ? !startupState.canChange : false"
+          />
+        </label>
+        <p class="mt-3 text-[var(--muted)]">{{ startupState?.statusText ?? "Loading startup state..." }}</p>
+        <label :class="[fieldClass, 'mt-4']">
+          <span :class="fieldLabelClass">Brightness step size</span>
+          <Slider v-model="settings.dimStepPercent" :min="1" :max="25" :step="1" />
+        </label>
+        <p class="mt-3 text-[var(--muted)]">{{ brightnessStepSummary }}</p>
+      </div>
 
-        <div class="card centered-card settings-card">
-          <div class="section-label">Hotkeys</div>
-          <label class="field">
-            <span>Decrease brightness key</span>
-            <InputText v-model="settings.manualHotkeys.dimMore.key" fluid />
-          </label>
-          <label class="field">
-            <span>Increase brightness key</span>
-            <InputText v-model="settings.manualHotkeys.dimLess.key" fluid />
-          </label>
-          <p class="muted">Modifier handling is preserved in the backend JSON contract; this first pass exposes the key names directly.</p>
-        </div>
+      <div :class="cardClass">
+        <div :class="sectionLabelClass">Hotkeys</div>
+        <label :class="[fieldClass, 'mt-4']">
+          <span :class="fieldLabelClass">Decrease brightness key</span>
+          <InputText v-model="settings.manualHotkeys.dimMore.key" fluid />
+        </label>
+        <label :class="[fieldClass, 'mt-4']">
+          <span :class="fieldLabelClass">Increase brightness key</span>
+          <InputText v-model="settings.manualHotkeys.dimLess.key" fluid />
+        </label>
+        <p class="mt-3 text-[var(--muted)]">
+          Modifier handling is preserved in the backend JSON contract; this first pass exposes the key names directly.
+        </p>
+      </div>
 
-        <div class="card centered-card settings-card">
-          <div class="section-label">Actions</div>
-          <div class="action-row action-row-buttons">
-            <Button label="Save Settings" @click="save" />
-            <Button label="Pause Schedule" severity="secondary" variant="outlined" @click="pauseSchedule" />
-            <Button label="Resume Schedule" severity="secondary" variant="outlined" @click="resumeSchedule" />
-          </div>
-          <p class="status">{{ statusMessage }}</p>
+      <div :class="cardClass">
+        <div :class="sectionLabelClass">Actions</div>
+        <div class="mt-4 grid gap-3 md:grid-cols-3">
+          <Button label="Save Settings" @click="save" />
+          <Button label="Pause Schedule" severity="secondary" variant="outlined" @click="pauseSchedule" />
+          <Button label="Resume Schedule" severity="secondary" variant="outlined" @click="resumeSchedule" />
         </div>
+        <p class="mt-3 text-[var(--muted)]">{{ statusMessage }}</p>
       </div>
     </section>
   </main>
 </template>
+
+
+
+
+

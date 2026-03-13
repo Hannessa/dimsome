@@ -1,3 +1,5 @@
+@import "tailwindcss";
+
 :root {
   font-family: "Segoe UI Variable Text", "Segoe UI", sans-serif;
   --bg: #f8eff5;
@@ -39,191 +41,61 @@
   color-scheme: light;
 }
 
-* {
-  box-sizing: border-box;
+@layer base {
+  *,
+  ::before,
+  ::after {
+    box-sizing: border-box;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-user-drag: none;
+    -webkit-app-region: no-drag;
+    -webkit-tap-highlight-color: transparent;
+    outline: none;
+  }
+
+  html,
+  body,
+  #app {
+    margin: 0;
+    min-height: 100%;
+  }
+
+  body {
+    min-height: 100vh;
+    background: transparent;
+    color: var(--text);
+  }
+
+  input,
+  select {
+    border-radius: 14px;
+  }
+
+  input[type="time"] {
+    width: 100%;
+    min-height: 42px;
+    padding: 10px 12px;
+    border: 1px solid var(--stroke);
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--text);
+  }
 }
 
-html,
-body,
-#app {
-  margin: 0;
-  min-height: 100%;
-}
+@layer components {
+  .glass-card {
+    background: var(--panel);
+    border: 1px solid var(--stroke);
+    box-shadow: var(--shadow);
+    backdrop-filter: blur(10px);
+  }
 
-body {
-  min-height: 100vh;
-  background: transparent;
-  color: var(--text);
-}
-
-.page {
-  padding: 24px;
-}
-
-.page-settings {
-  min-height: 100vh;
-}
-
-.page-quick {
-  padding: 12px;
-}
-
-.hero,
-.schedule-list,
-.action-row,
-.settings-stack {
-  display: grid;
-  gap: 18px;
-}
-
-.hero-centered,
-.panel-switcher,
-.panel-content {
-  display: grid;
-  justify-items: center;
-}
-
-.hero-centered {
-  margin-bottom: 22px;
-  gap: 14px;
-  text-align: center;
-}
-
-.hero-brightness {
-  font-size: clamp(2rem, 4vw, 3.5rem);
-  font-weight: 700;
-  color: var(--accent);
-  line-height: 1;
-}
-
-.hero-slider-wrap {
-  width: min(100%, 720px);
-  padding: 18px 24px;
-  background: var(--panel);
-  border: 1px solid var(--stroke);
-  border-radius: 999px;
-  box-shadow: var(--shadow);
-  backdrop-filter: blur(10px);
-}
-
-.hero-slider.p-slider {
-  width: 100%;
-}
-
-.hero-status-row {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  color: var(--muted);
-  font-size: 1rem;
-}
-
-.panel-switcher {
-  margin-bottom: 22px;
-}
-
-.panel-switcher .p-selectbutton {
-  justify-content: center;
-}
-
-.panel-content {
-  width: 100%;
-}
-
-.centered-card {
-  width: min(100%, 980px);
-}
-
-.settings-stack {
-  width: min(100%, 760px);
-}
-
-.card,
-.state-card,
-.quick-card {
-  background: var(--panel);
-  border: 1px solid var(--stroke);
-  border-radius: 24px;
-  padding: 20px;
-  box-shadow: var(--shadow);
-  backdrop-filter: blur(10px);
-}
-
-.quick-card {
-  max-width: 360px;
-  margin: 0 auto;
-  display: grid;
-  gap: 16px;
-}
-
-.page-quick .quick-card {
-  max-width: none;
-  gap: 12px;
-  padding: 18px;
-}
-
-.schedule-item {
-  display: grid;
-  gap: 12px;
-  grid-template-columns: 100px 1fr 140px 140px auto;
-  align-items: end;
-  padding: 14px;
-  border-radius: 18px;
-  border: 1px solid var(--stroke);
-  background: var(--panel-strong);
-}
-
-.field {
-  display: grid;
-  gap: 6px;
-}
-
-.checkbox-field {
-  grid-template-columns: 1fr auto;
-  align-items: center;
-}
-
-.field span,
-.section-label,
-.eyebrow {
-  color: var(--muted);
-  font-size: 0.9rem;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-.eyebrow {
-  margin: 0;
-}
-
-.state-value {
-  font-size: 1.9rem;
-  font-weight: 700;
-  color: var(--accent);
-}
-
-.muted,
-.status {
-  color: var(--muted);
-}
-
-.action-row-buttons {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
-input,
-select {
-  border-radius: 14px;
-}
-
-input[type="time"] {
-  width: 100%;
-  min-height: 42px;
-  padding: 10px 12px;
-  border: 1px solid var(--stroke);
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.1);
-  color: var(--text);
+  .glass-card-strong {
+    background: var(--panel-strong);
+    border: 1px solid var(--stroke);
+    backdrop-filter: blur(10px);
+  }
 }
 
 .p-inputtext,
@@ -238,21 +110,4 @@ input[type="time"] {
 
 .p-button {
   white-space: nowrap;
-}
-
-.hero-status-row .p-button {
-  width: auto;
-  min-width: 2.5rem;
-}
-
-@media (max-width: 960px) {
-  .schedule-item,
-  .action-row-buttons {
-    grid-template-columns: 1fr;
-  }
-
-  .hero-slider-wrap {
-    padding: 16px 18px;
-    border-radius: 28px;
-  }
 }
