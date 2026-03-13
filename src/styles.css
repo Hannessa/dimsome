@@ -1,4 +1,6 @@
 @import "tailwindcss";
+@import "./assets/scrollbar.css";
+
 
 :root {
   /* Define the shared light theme tokens and ambient background. */
@@ -33,10 +35,11 @@
   --accent: #f472b6;
   --danger: #f87171;
   --shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
-  background:
+  /*background:
     radial-gradient(circle at top left, var(--bg-accent), transparent 32%),
     radial-gradient(circle at top right, rgba(244, 114, 182, 0.1), transparent 24%),
-    linear-gradient(180deg, #22131d 0%, var(--bg) 100%);
+    linear-gradient(180deg, #22131d 0%, var(--bg) 100%);*/
+  background: #111;
 }
 
 :root.app-light {
@@ -56,6 +59,14 @@
     -webkit-app-region: no-drag;
     -webkit-tap-highlight-color: transparent;
     outline: none;
+  }
+
+  /*
+    We set the root font size to 2vmin so the whole UI scales with the viewport.
+    This means rem-based spacing, sizing, and typography all inherit from one global control point.
+  */
+  html {
+    font-size: 2.5vmin;
   }
 
   html,

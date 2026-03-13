@@ -5,7 +5,6 @@ import DatePicker from "primevue/datepicker";
 import InputNumber from "primevue/inputnumber";
 import InputText from "primevue/inputtext";
 import Select from "primevue/select";
-import SelectButton from "primevue/selectbutton";
 import ToggleSwitch from "primevue/toggleswitch";
 import AppSlider from "../components/AppSlider.vue";
 import {
@@ -49,12 +48,8 @@ const appearanceModeOptions: Array<{ label: string; value: "system" | Appearance
   { label: "Light", value: "light" },
   { label: "Dark", value: "dark" }
 ];
-const panelOptions: Array<{ label: string; value: "schedule" | "settings" }> = [
-  { label: "Schedule", value: "schedule" },
-  { label: "Settings", value: "settings" }
-];
-
 const cardClass = "glass-card rounded-[24px] p-5";
+const settingsSectionClass = "grid gap-6";
 const sectionLabelClass = "text-[0.9rem] uppercase tracking-[0.04em] text-[var(--muted)]";
 const fieldClass = "grid gap-1.5";
 const fieldLabelClass = "text-[0.9rem] uppercase tracking-[0.04em] text-[var(--muted)]";
@@ -62,9 +57,9 @@ const fieldLabelClass = "text-[0.9rem] uppercase tracking-[0.04em] text-[var(--m
 // Disable unavailable dimming engines without hiding them from the user.
 const dimmingMethodOptions = computed<Array<{ label: string; value: DimmingMethod; disabled?: boolean }>>(() => [
   { label: "Black overlay", value: "overlay" },
-  { label: "Gamma / LUT (experimental)", value: "gamma" },
+  { label: "Gamma / LUT", value: "gamma" },
   {
-    label: "Magnification (experimental)",
+    label: "Magnification",
     value: "magnification",
     disabled: !(dimmingCapabilities.value?.magnificationAvailable ?? false)
   }
@@ -335,15 +330,47 @@ watch(
     v-if="settings"
     class="flex h-screen flex-col overflow-hidden px-3 py-3 text-[var(--text)] sm:px-6 sm:py-6"
   >
-    <!-- Keep the app name visible even while switching between the two panels. -->
-    <p class="absolute m-0 text-[0.9rem] uppercase tracking-[0.04em] text-[var(--muted)]">Dimsome</p>
+    <!-- App name on the left, cogwheel settings toggle on the right. -->
+    <div class="flex items-center justify-between h-6">
+      <!--<p class="m-0 text-[0.9rem] uppercase tracking-[0.04em] text-[var(--muted)]">Dimsome</p>-->
 
-    <section class="mx-auto flex w-full max-w-5xl flex-none flex-col items-center gap-[18px] text-center">
+      <!-- Top-right cogwheel / back buttons-->
+      <div class="">
+          <button
+              v-if="selectedPanel === 'schedule'"
+                  class="flex items-center justify-center rounded-full p-1.5 text-[var(--muted)] transition-colors hover:text-[var(--text)] cursor-pointer"
+              title="Settings"
+              @click="selectedPanel = 'settings'"
+            >
+                  <i class="pi pi-cog" style="font-size: 1.3rem;" />
+            </button>
+
+             <!-- Navigate back to the schedule panel. -->
+            <div 
+              v-if="selectedPanel === 'settings'"
+            class=""
+            >
+              
+              <a
+                class="float-right inline-flex items-center justify-center gap-2.5 text-base text-[var(--muted)] cursor-pointer transition-colors hover:text-[var(--text)]"
+                @click="selectedPanel = 'schedule'"
+              >
+                <i class="pi pi-arrow-left text-[0.8rem]" />
+                <span>Back to Schedule</span>
+              </a>
+            </div>
+      </div>
+      
+
+     
+    </div>
+
+    <section class="mx-auto flex w-full max-w-5xl flex-none flex-col items-center gap-5 text-center mb-4">
       <!-- Surface the current brightness first because it is the primary action. -->
-      <div class="text-[clamp(2rem,4vw,3.5rem)] font-bold leading-none text-[var(--accent)]">
+      <div class="text-[2.4rem] font-semibold leading-none text-[var(--accent)]">
         {{ currentBrightnessPercent }}% brightness
       </div>
-      <div class="glass-card mx-auto w-full max-w-[720px] rounded-full px-6 py-[18px] max-md:rounded-[28px] max-md:px-[18px] max-md:py-4">
+      <div class="glass-card mx-auto w-full max-w-[720px] rounded-full px-6 py-5 max-md:rounded-[28px] max-md:px-[18px] max-md:py-4">
         <AppSlider
           v-model="sliderBrightness"
           class="w-full"
@@ -356,41 +383,45 @@ watch(
       </div>
     </section>
 
-    <section class="mx-auto mt-[22px] grid w-full max-w-5xl flex-none justify-items-center">
-      <!-- Let the window switch between scheduling controls and general settings. -->
-      <SelectButton
-        v-model="selectedPanel"
-        :options="panelOptions"
-        option-label="label"
-        option-value="value"
-        :allow-empty="false"
-        class="mx-auto !w-auto"
-      />
-    </section>
+    <section
+      class=""
+    >
+      <div class="h-14 w-full flex justify-center">
+      <!-- Clicking the paused badge is the quickest way back to automatic mode. -->
+      <div
+        v-if="!isFollowingSchedule"
+        class="float-right inline-flex items-center justify-center gap-2.5 text-base font-semibold text-[var(--muted)] cursor-pointer transition-colors hover:text-[var(--text)] mt-2 mb-6"
+        @click="resumeSchedule"
+      >
+        <span>{{ !settings.scheduleEnabled ? "Schedule disabled" : (isFollowingSchedule ? "Following schedule" : "Schedule Override - Click to Resume") }}</span>
+      </div>
+
+      <!-- The master toggle dims the whole schedule editor without deleting points. -->
+      <label 
+        v-else
+        class="inline-flex w-fit items-center gap-3 px-4 py-3 text-left justify-self-center cursor-pointer mb-4 ">
+        <ToggleSwitch v-model="settings.scheduleEnabled" />
+        <span class="text-[0.9rem] font-semibold uppercase tracking-[0.04em] text-[var(--muted)]">Enable schedule</span>
+      </label>
+      </div>
+    </section> 
+
 
     <section
       v-if="selectedPanel === 'schedule'"
-      class="mx-auto mt-[22px] grid min-h-0 w-full max-w-5xl flex-1 justify-items-center overflow-hidden"
-    >
-      <div :class="[cardClass, 'flex min-h-0 w-full max-w-[980px] flex-col overflow-hidden']">
-        <div class="flex flex-wrap items-start justify-between gap-4">
-          <!-- The master toggle dims the whole schedule editor without deleting points. -->
-          <label class="flex items-center gap-3 px-4 py-3 text-left">
-            <ToggleSwitch v-model="settings.scheduleEnabled" />
-            <span class="text-[0.9rem] font-semibold uppercase tracking-[0.04em] text-[var(--muted)]">Enable schedule</span>
-          </label>
+      class="mx-auto grid min-h-0 w-full max-w-5xl flex-1 overflow-hidden"
+    > <!-- justify-items-center -->
 
-          <!-- Clicking the paused badge is the quickest way back to automatic mode. -->
-          <div
-            v-if="!isFollowingSchedule"
-            class="float-right inline-flex items-center justify-center gap-2.5 text-base text-[var(--muted)]"
-            @click="resumeSchedule"
-          >
-            <span>{{ !settings.scheduleEnabled ? "Schedule disabled" : (isFollowingSchedule ? "Following schedule" : "Schedule paused (click to resume)") }}</span>
-          </div>
+
+      
+      <div :class="[cardClass, 'flex min-h-0 w-full max-w-[980px] flex-col overflow-auto']">
+        <div class="flex flex-wrap items-start justify-between gap-4 ">
+          
+
+          
         </div>
 
-        <div class="mt-[18px] min-h-0 flex-1 overflow-auto pr-1">
+        <div class="mt-[18px] min-h-0 flex-1  pr-1">
           <div
             :class="[
               'grid gap-2 pb-1 transition-opacity',
@@ -482,77 +513,80 @@ watch(
 
     <section
       v-else
-      class="mx-auto mt-[22px] grid w-full max-w-[760px] flex-1 gap-[18px] overflow-y-auto pb-1"
+      class="mx-auto grid min-h-0 w-full max-w-5xl flex-1 overflow-hidden"
     >
-      <div :class="cardClass">
-        <!-- Appearance stays separate so theme changes do not get lost among dimming options. -->
-        <div :class="sectionLabelClass">Appearance</div>
-        <label :class="[fieldClass, 'mt-4']">
-          <span :class="fieldLabelClass">Color scheme</span>
-          <Select
-            v-model="selectedAppearanceMode"
-            :options="appearanceModeOptions"
-            option-label="label"
-            option-value="value"
-            fluid
-          />
-        </label>
-        <p class="mt-3 text-[var(--muted)]">
-          If you leave this on Follow system, PrimeVue tracks the operating system color scheme.
-        </p>
-      </div>
 
-      <div :class="cardClass">
-        <!-- Explain the available dimming engines without overwhelming the main schedule UI. -->
-        <div :class="sectionLabelClass">Dimming</div>
-        <label :class="[fieldClass, 'mt-4']">
-          <span :class="fieldLabelClass">Method</span>
-          <Select
-            v-model="settings.dimmingMethod"
-            :options="dimmingMethodOptions"
-            option-label="label"
-            option-value="value"
-            option-disabled="disabled"
-            fluid
-          />
-        </label>
-        <p class="mt-3 text-[var(--muted)]">
-          {{ dimmingMethodSummary }}
-        </p>
-      </div>
+      
 
-      <div :class="cardClass">
-        <!-- Group automation-related toggles so startup and manual step size live together. -->
-        <div :class="sectionLabelClass">Automation</div>
-        <label :class="[fieldClass, 'mt-4 grid-cols-[1fr_auto] items-center']">
-          <span :class="fieldLabelClass">Launch at sign-in</span>
-          <ToggleSwitch
-            v-model="settings.startupEnabled"
-            :disabled="startupState ? !startupState.canChange : false"
-          />
-        </label>
-        <p class="mt-3 text-[var(--muted)]">{{ startupState?.statusText ?? "Loading startup state..." }}</p>
-        <label :class="[fieldClass, 'mt-4']">
-          <span :class="fieldLabelClass">Brightness step size</span>
-          <AppSlider v-model="settings.dimStepPercent" :min="1" :max="25" :step="1" />
-        </label>
-        <p class="mt-3 text-[var(--muted)]">{{ brightnessStepSummary }}</p>
-      </div>
+      <div :class="[cardClass, 'min-h-0 overflow-y-auto p-6']">
+        <div :class="settingsSectionClass">
+          <section>
+            <!-- Appearance stays separate so theme changes do not get lost among dimming options. -->
+            <div :class="sectionLabelClass" class="text-center">Settings</div>
+            <label :class="[fieldClass, 'mt-6']">
+              <span :class="fieldLabelClass">Theme</span>
+              <Select
+                v-model="selectedAppearanceMode"
+                :options="appearanceModeOptions"
+                option-label="label"
+                option-value="value"
+                fluid
+              />
+            </label>
+            <!--<p class="mt-3 text-[var(--muted)]">
+              If you leave this on Follow system, PrimeVue tracks the operating system color scheme.
+            </p>-->
+          </section>
 
-      <div :class="cardClass">
-        <!-- Keep hotkey editing intentionally lightweight until a richer picker exists. -->
-        <div :class="sectionLabelClass">Hotkeys</div>
-        <label :class="[fieldClass, 'mt-4']">
-          <span :class="fieldLabelClass">Decrease brightness key</span>
-          <InputText v-model="settings.manualHotkeys.dimMore.key" fluid @blur="saveHotkeys" />
-        </label>
-        <label :class="[fieldClass, 'mt-4']">
-          <span :class="fieldLabelClass">Increase brightness key</span>
-          <InputText v-model="settings.manualHotkeys.dimLess.key" fluid @blur="saveHotkeys" />
-        </label>
-        <p class="mt-3 text-[var(--muted)]">
-          Modifier handling is preserved in the backend JSON contract; this first pass exposes the key names directly.
-        </p>
+          <section>
+            <!-- Explain the available dimming engines without overwhelming the main schedule UI. -->
+            <label :class="[fieldClass, 'mt-2']">
+              <span :class="fieldLabelClass">Dimming Method</span>
+              <Select
+                v-model="settings.dimmingMethod"
+                :options="dimmingMethodOptions"
+                option-label="label"
+                option-value="value"
+                option-disabled="disabled"
+                fluid
+              />
+            </label>
+            <p class="mt-3 text-[var(--muted)]">
+              {{ dimmingMethodSummary }}
+            </p>
+          </section>
+
+          <section>
+            <!-- Group automation-related toggles so startup and manual step size live together. -->
+            <label :class="[fieldClass, 'mt-3 inline-flex items-center']">
+              <span :class="fieldLabelClass" class="pr-3">Launch Dimsome at sign-in</span>
+              <ToggleSwitch
+                v-model="settings.startupEnabled"
+                :disabled="startupState ? !startupState.canChange : false"
+              />
+            </label>
+            <!--<p class="mt-3 text-[var(--muted)]">{{ startupState?.statusText ?? "Loading startup state..." }}</p>-->
+            
+          </section>
+
+          <section>
+            <!-- Keep hotkey editing intentionally lightweight until a richer picker exists. -->
+            <div :class="sectionLabelClass" class="text-center">Hotkeys</div>
+            <label :class="[fieldClass, 'mt-6']">
+              <span :class="fieldLabelClass">Decrease brightness key</span>
+              <InputText v-model="settings.manualHotkeys.dimMore.key" fluid @blur="saveHotkeys" />
+            </label>
+            <label :class="[fieldClass, 'mt-6']">
+              <span :class="fieldLabelClass">Increase brightness key</span>
+              <InputText v-model="settings.manualHotkeys.dimLess.key" fluid @blur="saveHotkeys" />
+            </label>
+            <label :class="[fieldClass, 'mt-6']">
+              <span :class="fieldLabelClass">Brightness step size</span>
+              <AppSlider v-model="settings.dimStepPercent" :min="1" :max="25" :step="1" />
+            </label>
+            <p class="mt-3 text-[var(--muted)]">{{ brightnessStepSummary }}</p>
+          </section>
+        </div>
       </div>
     </section>
   </main>
