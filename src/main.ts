@@ -22,6 +22,13 @@ const DimsomePreset = definePreset(Material, {
       900: "{pink.900}",
       950: "{pink.950}"
     }
+  },
+  components: {
+    slider: {
+      track: {
+        background: "transparent"
+      }
+    }
   }
 });
 

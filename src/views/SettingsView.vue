@@ -39,6 +39,7 @@ const panelOptions: Array<{ label: string; value: "schedule" | "settings" }> = [
   { label: "Settings", value: "settings" }
 ];
 
+
 const cardClass = "glass-card rounded-[24px] p-5";
 const sectionLabelClass = "text-[0.9rem] uppercase tracking-[0.04em] text-[var(--muted)]";
 const fieldClass = "grid gap-1.5";
@@ -99,6 +100,7 @@ function removeSchedulePoint(id: string) {
   const model = ensureSettings();
   model.schedulePoints = model.schedulePoints.filter((point) => point.id !== id);
 }
+
 
 async function applyBrightnessFromSlider(event: { value: number | number[] }) {
   const nextBrightness = Array.isArray(event.value) ? event.value[0] : event.value;
@@ -250,12 +252,9 @@ onStartupStateChanged((payload) => {
           <div
             v-for="point in settings.schedulePoints"
             :key="point.id"
-            class="glass-card-strong grid items-end gap-3 rounded-[18px] p-[14px] xl:grid-cols-[100px_minmax(0,1fr)_140px_140px_auto]"
+            class="glass-card-strong grid items-end gap-3 rounded-[18px] p-[14px] xl:grid-cols-[minmax(0,1fr)_140px_140px_80px_auto]"
           >
-            <label :class="fieldClass">
-              <span :class="fieldLabelClass" class=" mb-4">Enabled</span>
-              <div><ToggleSwitch class="mb-2" v-model="point.enabled" :disabled="!settings.scheduleEnabled" /></div>
-            </label>
+            
             <label :class="fieldClass">
               <span :class="fieldLabelClass">Time</span>
               <input type="time" step="60" lang="en-GB" v-model="point.timeOfDay" :disabled="!settings.scheduleEnabled" />
@@ -272,8 +271,12 @@ onStartupStateChanged((payload) => {
               />
             </label>
             <label :class="fieldClass">
-              <span :class="fieldLabelClass">Fade min</span>
+              <span :class="fieldLabelClass">Fade duration</span>
               <InputNumber v-model="point.transitionMinutes" :min="0" :max="1439" :disabled="!settings.scheduleEnabled" fluid />
+            </label>
+            <label :class="fieldClass">
+              <span :class="fieldLabelClass" class="text-center mb-4">Enabled</span>
+              <div class="text-center"><ToggleSwitch class="mb-3" v-model="point.enabled" :disabled="!settings.scheduleEnabled" /></div>
             </label>
             <Button
               label="Remove"
