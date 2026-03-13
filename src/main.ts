@@ -2,6 +2,7 @@ import { createApp } from "vue";
 import { definePreset } from "@primeuix/themes";
 import Material from "@primeuix/themes/material";
 import PrimeVue from "primevue/config";
+import "primeicons/primeicons.css";
 import App from "./App.vue";
 import { getSettings } from "./lib/api";
 import { syncAppearanceMode } from "./lib/theme";

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import Button from "primevue/button";
+import DatePicker from "primevue/datepicker";
 import InputNumber from "primevue/inputnumber";
 import InputText from "primevue/inputtext";
 import Select from "primevue/select";
@@ -99,6 +100,23 @@ function addSchedulePoint() {
 function removeSchedulePoint(id: string) {
   const model = ensureSettings();
   model.schedulePoints = model.schedulePoints.filter((point) => point.id !== id);
+}
+
+function scheduleTimeToDate(timeOfDay: string) {
+  const [hour = "00", minute = "00", second = "00"] = timeOfDay.split(":");
+  const value = new Date();
+  value.setHours(Number.parseInt(hour, 10), Number.parseInt(minute, 10), Number.parseInt(second, 10), 0);
+  return value;
+}
+
+function updateScheduleTime(point: AppSettings["schedulePoints"][number], value: Date | Date[] | (Date | null)[] | undefined | null) {
+  if (!(value instanceof Date)) {
+    return;
+  }
+
+  const hour = value.getHours().toString().padStart(2, "0");
+  const minute = value.getMinutes().toString().padStart(2, "0");
+  point.timeOfDay = `${hour}:${minute}:00`;
 }
 
 
@@ -257,7 +275,18 @@ onStartupStateChanged((payload) => {
             
             <label :class="fieldClass">
               <span :class="fieldLabelClass">Time</span>
-              <input type="time" step="60" lang="en-GB" v-model="point.timeOfDay" :disabled="!settings.scheduleEnabled" />
+              <DatePicker
+                :model-value="scheduleTimeToDate(point.timeOfDay)"
+                time-only
+                hour-format="24"
+                show-icon
+                icon="pi pi-clock"
+                icon-display="input"
+                :manual-input="false"
+                :disabled="!settings.scheduleEnabled"
+                fluid
+                @update:model-value="updateScheduleTime(point, $event)"
+              />
             </label>
             <label :class="fieldClass">
               <span :class="fieldLabelClass">Brightness %</span>
