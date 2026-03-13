@@ -8,6 +8,7 @@ mod state;
 mod windows;
 
 use tauri::{
+    image::Image,
     menu::{MenuBuilder, MenuItemBuilder},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     Emitter, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent,
@@ -20,6 +21,9 @@ use crate::{
 
 const SETTINGS_WINDOW_WIDTH: f64 = 1280.0;
 const SETTINGS_WINDOW_HEIGHT: f64 = 860.0;
+const TRAY_ICON_WIDTH: u32 = 32;
+const TRAY_ICON_HEIGHT: u32 = 32;
+const TRAY_ICON_RGBA: &[u8] = include_bytes!("../icons/tray-icon.rgba");
 
 fn configure_settings_window(window: &WebviewWindow) {
     let settings_window = window.clone();
@@ -101,8 +105,10 @@ pub fn run() {
             let menu = MenuBuilder::new(app)
                 .items(&[&open_settings, &pause_resume, &quit])
                 .build()?;
+            let tray_icon = Image::new(TRAY_ICON_RGBA, TRAY_ICON_WIDTH, TRAY_ICON_HEIGHT);
 
             let _tray = TrayIconBuilder::new()
+                .icon(tray_icon)
                 .menu(&menu)
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "open_settings" => {
