@@ -373,7 +373,7 @@ watch(
                 show-icon
                 icon="pi pi-clock"
                 icon-display="input"
-                :manual-input="false"
+                manual-input
                 :disabled="!settings.scheduleEnabled"
                 fluid
                 @update:model-value="updateScheduleTime(point, $event)"
