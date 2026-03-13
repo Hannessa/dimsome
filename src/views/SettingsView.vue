@@ -6,8 +6,8 @@ import InputNumber from "primevue/inputnumber";
 import InputText from "primevue/inputtext";
 import Select from "primevue/select";
 import SelectButton from "primevue/selectbutton";
-import AppSlider from "../components/AppSlider.vue";
 import ToggleSwitch from "primevue/toggleswitch";
+import AppSlider from "../components/AppSlider.vue";
 import {
   applyManualDim,
   getDimmingCapabilities,
@@ -29,6 +29,7 @@ import type {
   StartupRegistrationState
 } from "../types/app";
 
+// Track the persisted settings plus the live dimming/runtime state shown in the UI.
 const settings = ref<AppSettings | null>(null);
 const dimmingCapabilities = ref<DimmingCapabilities | null>(null);
 const currentState = ref<EffectiveDimState | null>(null);
@@ -41,6 +42,8 @@ const saveQueued = ref(false);
 const isSaving = ref(false);
 const skipAutosave = ref(true);
 const lastSavedSnapshot = ref<string | null>(null);
+
+// Keep select options local so the template can stay declarative.
 const appearanceModeOptions: Array<{ label: string; value: "system" | AppearanceMode }> = [
   { label: "Follow system", value: "system" },
   { label: "Light", value: "light" },
@@ -56,6 +59,7 @@ const sectionLabelClass = "text-[0.9rem] uppercase tracking-[0.04em] text-[var(-
 const fieldClass = "grid gap-1.5";
 const fieldLabelClass = "text-[0.9rem] uppercase tracking-[0.04em] text-[var(--muted)]";
 
+// Disable unavailable dimming engines without hiding them from the user.
 const dimmingMethodOptions = computed<Array<{ label: string; value: DimmingMethod; disabled?: boolean }>>(() => [
   { label: "Black overlay", value: "overlay" },
   { label: "Gamma / LUT (experimental)", value: "gamma" },
@@ -65,6 +69,8 @@ const dimmingMethodOptions = computed<Array<{ label: string; value: DimmingMetho
     disabled: !(dimmingCapabilities.value?.magnificationAvailable ?? false)
   }
 ]);
+
+// Summarize the tradeoffs so the selector stays short and the details stay readable.
 const dimmingMethodSummary = computed(() => {
   const gammaText = "Gamma / LUT may interact with Night Light, HDR, or display calibration.";
   const magnificationText = dimmingCapabilities.value?.magnificationStatusText ?? "Checking Magnification support...";
@@ -80,12 +86,13 @@ const selectedAppearanceMode = computed({
       return;
     }
 
+    // Store "system" as an undefined override so the backend JSON stays compact.
     settings.value.appearanceMode = value === "system" ? undefined : value;
     syncAppearanceMode(settings.value.appearanceMode);
   }
 });
 
-// Disable right-click
+// Disable the native right-click context menu so the desktop window feels more app-like.
 document.addEventListener("contextmenu", (event) => event.preventDefault());
 
 function toBrightnessPercent(dimPercent: number) {
@@ -96,10 +103,12 @@ function toDimPercent(brightnessPercent: number) {
   return Math.min(99, Math.max(0, 100 - brightnessPercent));
 }
 
+// Reflect backend state changes back into the slider's brightness-oriented UI.
 function syncSliderToState(state: EffectiveDimState | null) {
   sliderBrightness.value = 100 - (state?.currentDimPercent ?? 0);
 }
 
+// Fail loudly if a settings-only action runs before initialization finishes.
 function ensureSettings() {
   if (!settings.value) {
     throw new Error("Settings are not loaded.");
@@ -108,14 +117,17 @@ function ensureSettings() {
   return settings.value;
 }
 
+// Clone before save so in-flight backend updates do not mutate the active form model.
 function cloneSettings(model: AppSettings): AppSettings {
   return JSON.parse(JSON.stringify(model)) as AppSettings;
 }
 
+// Use full serialization for exact equality checks after a save completes.
 function serializeSettings(model: AppSettings) {
   return JSON.stringify(model);
 }
 
+// Ignore fields that are updated externally so we only autosave user-edited settings.
 function serializeAutosaveSettings(model: AppSettings) {
   return JSON.stringify({
     startupEnabled: model.startupEnabled,
@@ -127,6 +139,7 @@ function serializeAutosaveSettings(model: AppSettings) {
   });
 }
 
+// Collapse multiple quick edits into a single save loop instead of racing requests.
 function queueAutosave() {
   if (skipAutosave.value || !settings.value) {
     return;
@@ -136,6 +149,7 @@ function queueAutosave() {
   void flushAutosaveQueue();
 }
 
+// Serialize saves so startup registration and settings persistence stay in sync.
 async function flushAutosaveQueue() {
   if (isSaving.value || !settings.value) {
     return;
@@ -148,10 +162,12 @@ async function flushAutosaveQueue() {
       saveQueued.value = false;
       const snapshot = cloneSettings(settings.value);
 
+      // Apply startup registration first because Windows may reject the requested value.
       const startup = await setStartupEnabled(snapshot.startupEnabled);
       startupState.value = startup;
       snapshot.startupEnabled = startup.isEnabled;
 
+      // Persist the normalized settings and then replace the form with the saved copy.
       const saved = await saveSettings(snapshot);
       lastSavedSnapshot.value = serializeSettings(saved);
 
@@ -165,12 +181,14 @@ async function flushAutosaveQueue() {
       }
     }
   } catch (error) {
+    // Keep the UI responsive even if persistence fails; the console has the details.
     console.error("Failed to auto-save settings.", error);
   } finally {
     isSaving.value = false;
   }
 }
 
+// Seed new points one hour after the latest scheduled entry to reduce manual cleanup.
 function addSchedulePoint() {
   const model = ensureSettings();
   const last = [...model.schedulePoints].sort((a, b) => a.timeOfDay.localeCompare(b.timeOfDay)).at(-1);
@@ -184,11 +202,13 @@ function addSchedulePoint() {
   });
 }
 
+// Remove points immutably so Vue updates the list without edge cases.
 function removeSchedulePoint(id: string) {
   const model = ensureSettings();
   model.schedulePoints = model.schedulePoints.filter((point) => point.id !== id);
 }
 
+// Convert a stored HH:mm:ss value into a DatePicker-friendly date object.
 function scheduleTimeToDate(timeOfDay: string) {
   const [hour = "00", minute = "00", second = "00"] = timeOfDay.split(":");
   const value = new Date();
@@ -196,6 +216,7 @@ function scheduleTimeToDate(timeOfDay: string) {
   return value;
 }
 
+// Only commit valid DatePicker values back into the serialized schedule string.
 function updateScheduleTime(point: AppSettings["schedulePoints"][number], value: Date | Date[] | (Date | null)[] | undefined | null) {
   if (!(value instanceof Date)) {
     return;
@@ -206,15 +227,18 @@ function updateScheduleTime(point: AppSettings["schedulePoints"][number], value:
   point.timeOfDay = `${hour}:${minute}:00`;
 }
 
+// Hotkeys save on blur so partial edits do not re-register bindings mid-typing.
 function saveHotkeys() {
   queueAutosave();
 }
 
+// PrimeVue's slideend event may contain range arrays, so normalize it before saving.
 async function applyBrightnessFromSlider(event: { value: number | number[] }) {
   const nextBrightness = Array.isArray(event.value) ? event.value[0] : event.value;
   await applyBrightnessWhileDragging(nextBrightness);
 }
 
+// Coalesce rapid drag updates so only the latest brightness gets sent after each await.
 async function applyBrightnessWhileDragging(nextBrightness: number) {
   sliderBrightness.value = nextBrightness;
   pendingSliderBrightness.value = nextBrightness;
@@ -229,6 +253,7 @@ async function applyBrightnessWhileDragging(nextBrightness: number) {
     while (pendingSliderBrightness.value !== null) {
       const brightnessToApply = pendingSliderBrightness.value;
       pendingSliderBrightness.value = null;
+      // Manual changes temporarily override the schedule until the next transition.
       currentState.value = await applyManualDim(toDimPercent(brightnessToApply));
       syncSliderToState(currentState.value);
     }
@@ -237,6 +262,7 @@ async function applyBrightnessWhileDragging(nextBrightness: number) {
   }
 }
 
+// Load everything the window needs up front so the first rendered view is complete.
 async function initialize() {
   const [loadedSettings, loadedCapabilities, loadedState, loadedStartupState] = await Promise.all([
     getSettings(),
@@ -256,14 +282,17 @@ async function initialize() {
 }
 
 onMounted(async () => {
+  // Delay the initial fetch until the component is mounted inside the Tauri window.
   await initialize();
 });
 
+// Mirror backend state broadcasts into the live brightness display.
 onStateChanged((payload) => {
   currentState.value = payload;
   syncSliderToState(payload);
 });
 
+// Accept backend-normalized settings so the form always reflects the persisted truth.
 onSettingsSaved((payload) => {
   lastSavedSnapshot.value = serializeSettings(payload);
   skipAutosave.value = true;
@@ -272,6 +301,7 @@ onSettingsSaved((payload) => {
   skipAutosave.value = false;
 });
 
+// Keep the sign-in toggle status text updated after registry changes.
 onStartupStateChanged((payload) => {
   startupState.value = payload;
 });
@@ -283,6 +313,7 @@ watch(
       return;
     }
 
+    // Autosave whenever the meaningful settings snapshot changes after initialization.
     queueAutosave();
   }
 );
@@ -293,12 +324,12 @@ watch(
     v-if="settings"
     class="flex h-screen flex-col overflow-hidden px-3 py-3 text-[var(--text)] sm:px-6 sm:py-6"
   >
-
-    <p class="m-0 text-[0.9rem] uppercase tracking-[0.04em] text-[var(--muted)] absolute">Dimsome</p>
+    <!-- Keep the app name visible even while switching between the two panels. -->
+    <p class="absolute m-0 text-[0.9rem] uppercase tracking-[0.04em] text-[var(--muted)]">Dimsome</p>
 
     <section class="mx-auto flex w-full max-w-5xl flex-none flex-col items-center gap-[18px] text-center">
-      
-      <div class="text-[clamp(2rem,4vw,3.5rem)] leading-none font-bold text-[var(--accent)]">
+      <!-- Surface the current brightness first because it is the primary action. -->
+      <div class="text-[clamp(2rem,4vw,3.5rem)] font-bold leading-none text-[var(--accent)]">
         {{ currentBrightnessPercent }}% brightness
       </div>
       <div class="glass-card mx-auto w-full max-w-[720px] rounded-full px-6 py-[18px] max-md:rounded-[28px] max-md:px-[18px] max-md:py-4">
@@ -315,6 +346,7 @@ watch(
     </section>
 
     <section class="mx-auto mt-[22px] grid w-full max-w-5xl flex-none justify-items-center">
+      <!-- Let the window switch between scheduling controls and general settings. -->
       <SelectButton
         v-model="selectedPanel"
         :options="panelOptions"
@@ -331,13 +363,19 @@ watch(
     >
       <div :class="[cardClass, 'flex min-h-0 w-full max-w-[980px] flex-col overflow-hidden']">
         <div class="flex flex-wrap items-start justify-between gap-4">
+          <!-- The master toggle dims the whole schedule editor without deleting points. -->
           <label class="flex items-center gap-3 px-4 py-3 text-left">
             <ToggleSwitch v-model="settings.scheduleEnabled" />
             <span class="text-[0.9rem] font-semibold uppercase tracking-[0.04em] text-[var(--muted)]">Enable schedule</span>
           </label>
 
-          <div v-if="!isFollowingSchedule" class="inline-flex items-center justify-center gap-2.5 text-base text-[var(--muted)] float-right" @click="resumeSchedule">
-            <span>{{ !settings.scheduleEnabled ? "Schedule disabled" : ( isFollowingSchedule ? "Following schedule" : "Schedule paused (click to resume)" ) }}</span>
+          <!-- Clicking the paused badge is the quickest way back to automatic mode. -->
+          <div
+            v-if="!isFollowingSchedule"
+            class="float-right inline-flex items-center justify-center gap-2.5 text-base text-[var(--muted)]"
+            @click="resumeSchedule"
+          >
+            <span>{{ !settings.scheduleEnabled ? "Schedule disabled" : (isFollowingSchedule ? "Following schedule" : "Schedule paused (click to resume)") }}</span>
           </div>
         </div>
 
@@ -348,68 +386,82 @@ watch(
               settings.scheduleEnabled ? 'opacity-100' : 'opacity-55'
             ]"
           >
-          <div
-            class="grid min-w-[760px] grid-cols-[minmax(0,1fr)_140px_140px_80px_auto] items-center gap-3 px-3 text-[0.82rem] font-semibold uppercase tracking-[0.04em] text-[var(--muted)]"
-          >
-            <span>Time</span>
-            <span>Brightness %</span>
-            <span>Fade duration</span>
-            <span class="text-center">Enabled</span>
-            <span class="text-right">Action</span>
-          </div>
-          <div
-            v-for="point in settings.schedulePoints"
-            :key="point.id"
-            class="glass-card-strong grid min-w-[760px] grid-cols-[minmax(0,1fr)_140px_140px_80px_auto] items-center gap-3 rounded-[16px] px-3 py-2.5"
-          >
-            <div :class="fieldClass">
-              <DatePicker
-                :model-value="scheduleTimeToDate(point.timeOfDay)"
-                time-only
-                hour-format="24"
-                show-icon
-                icon="pi pi-clock"
-                icon-display="input"
-                manual-input
+            <!-- Keep the schedule list table-like so time, brightness, and duration line up. -->
+            <div
+              class="grid min-w-[760px] grid-cols-[minmax(0,1fr)_140px_140px_80px_auto] items-center gap-3 px-3 text-[0.82rem] font-semibold uppercase tracking-[0.04em] text-[var(--muted)]"
+            >
+              <span>Time</span>
+              <span>Brightness %</span>
+              <span>Fade duration</span>
+              <span class="text-center">Enabled</span>
+              <span class="text-right">Action</span>
+            </div>
+
+            <!-- Each row stays fully editable so schedule changes can be made in-place. -->
+            <div
+              v-for="point in settings.schedulePoints"
+              :key="point.id"
+              class="glass-card-strong grid min-w-[760px] grid-cols-[minmax(0,1fr)_140px_140px_80px_auto] items-center gap-3 rounded-[16px] px-3 py-2.5"
+            >
+              <div :class="fieldClass">
+                <DatePicker
+                  :model-value="scheduleTimeToDate(point.timeOfDay)"
+                  time-only
+                  hour-format="24"
+                  show-icon
+                  icon="pi pi-clock"
+                  icon-display="input"
+                  manual-input
+                  :disabled="!settings.scheduleEnabled"
+                  fluid
+                  @update:model-value="updateScheduleTime(point, $event)"
+                />
+              </div>
+              <div :class="fieldClass">
+                <InputNumber
+                  :model-value="toBrightnessPercent(point.targetDimPercent)"
+                  @update:model-value="point.targetDimPercent = toDimPercent($event ?? 100)"
+                  incrementButtonClass="mt-1"
+                  decrementButtonClass="mb-1"
+                  showButtons
+                  :min="5"
+                  :max="100"
+                  :disabled="!settings.scheduleEnabled"
+                  fluid
+                />
+              </div>
+              <div :class="fieldClass">
+                <InputNumber
+                  v-model="point.transitionMinutes"
+                  showButtons
+                  :min="0"
+                  :max="1439"
+                  :disabled="!settings.scheduleEnabled"
+                  fluid
+                  incrementButtonClass="mt-1"
+                  decrementButtonClass="mb-1"
+                />
+              </div>
+              <div class="flex justify-center">
+                <ToggleSwitch v-model="point.enabled" :disabled="!settings.scheduleEnabled" />
+              </div>
+              <Button
+                label="Remove"
+                severity="secondary"
+                variant="outlined"
+                class="w-full min-w-[96px]"
                 :disabled="!settings.scheduleEnabled"
-                fluid
-                @update:model-value="updateScheduleTime(point, $event)"
+                @click="removeSchedulePoint(point.id)"
               />
             </div>
-            <div :class="fieldClass">
-              <InputNumber
-                :model-value="toBrightnessPercent(point.targetDimPercent)"
-                @update:model-value="point.targetDimPercent = toDimPercent($event ?? 100)"
-                incrementButtonClass="mt-1" decrementButtonClass="mb-1"
-                showButtons
-                :min="5"
-                :max="100"
-                :disabled="!settings.scheduleEnabled"
-                fluid
-              />
-            </div>
-            <div :class="fieldClass">
-              <InputNumber v-model="point.transitionMinutes" showButtons :min="0" :max="1439" :disabled="!settings.scheduleEnabled" fluid incrementButtonClass="mt-1" decrementButtonClass="mb-1" />
-            </div>
-            <div class="flex justify-center">
-              <ToggleSwitch v-model="point.enabled" :disabled="!settings.scheduleEnabled" />
-            </div>
-            <Button
-              label="Remove"
-              severity="secondary"
-              variant="outlined"
-              class="w-full min-w-[96px]"
-              :disabled="!settings.scheduleEnabled"
-              @click="removeSchedulePoint(point.id)"
-            />
-          </div>
           </div>
 
+          <!-- Add points beneath the list so the table stays the main focus. -->
           <Button
             label="Add Schedule Point"
             severity="secondary"
             variant="outlined"
-            class="mt-[18px] mb-9 sm:w-auto"
+            class="mb-9 mt-[18px] sm:w-auto"
             :disabled="!settings.scheduleEnabled"
             @click="addSchedulePoint"
           />
@@ -422,6 +474,7 @@ watch(
       class="mx-auto mt-[22px] grid w-full max-w-[760px] flex-1 gap-[18px] overflow-y-auto pb-1"
     >
       <div :class="cardClass">
+        <!-- Appearance stays separate so theme changes do not get lost among dimming options. -->
         <div :class="sectionLabelClass">Appearance</div>
         <label :class="[fieldClass, 'mt-4']">
           <span :class="fieldLabelClass">Color scheme</span>
@@ -439,6 +492,7 @@ watch(
       </div>
 
       <div :class="cardClass">
+        <!-- Explain the available dimming engines without overwhelming the main schedule UI. -->
         <div :class="sectionLabelClass">Dimming</div>
         <label :class="[fieldClass, 'mt-4']">
           <span :class="fieldLabelClass">Method</span>
@@ -457,6 +511,7 @@ watch(
       </div>
 
       <div :class="cardClass">
+        <!-- Group automation-related toggles so startup and manual step size live together. -->
         <div :class="sectionLabelClass">Automation</div>
         <label :class="[fieldClass, 'mt-4 grid-cols-[1fr_auto] items-center']">
           <span :class="fieldLabelClass">Launch at sign-in</span>
@@ -474,6 +529,7 @@ watch(
       </div>
 
       <div :class="cardClass">
+        <!-- Keep hotkey editing intentionally lightweight until a richer picker exists. -->
         <div :class="sectionLabelClass">Hotkeys</div>
         <label :class="[fieldClass, 'mt-4']">
           <span :class="fieldLabelClass">Decrease brightness key</span>

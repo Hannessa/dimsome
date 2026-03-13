@@ -6,6 +6,7 @@ import type {
   StartupRegistrationState
 } from "../types/app";
 
+// Keep all Tauri command names in one place so the UI calls stay consistent.
 export function getSettings() {
   return invoke<AppSettings>("get_settings");
 }

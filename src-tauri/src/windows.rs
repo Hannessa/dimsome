@@ -10,8 +10,8 @@ use windows::{
     Win32::{
         Foundation::{BOOL, COLORREF, HWND, LPARAM, LRESULT, RECT, WPARAM},
         Graphics::Gdi::{
-            CreateDCW, DeleteDC, EnumDisplayMonitors, GetMonitorInfoW, GetStockObject, HBRUSH,
-            HDC, HMONITOR, MONITORINFOEXW, BLACK_BRUSH,
+            CreateDCW, DeleteDC, EnumDisplayMonitors, GetMonitorInfoW, GetStockObject, BLACK_BRUSH,
+            HBRUSH, HDC, HMONITOR, MONITORINFOEXW,
         },
         System::LibraryLoader::GetModuleHandleW,
         UI::{
@@ -24,9 +24,9 @@ use windows::{
                 CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, PeekMessageW,
                 RegisterClassW, SetLayeredWindowAttributes, SetWindowPos, ShowWindow,
                 TranslateMessage, HTTRANSPARENT, HWND_TOPMOST, LWA_ALPHA, MA_NOACTIVATE, MSG,
-                PM_REMOVE, SW_SHOWNOACTIVATE, SWP_NOACTIVATE, SWP_SHOWWINDOW,
-                WM_MOUSEACTIVATE, WM_NCHITTEST, WNDCLASSW, WS_EX_LAYERED, WS_EX_NOACTIVATE,
-                WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP, WS_VISIBLE,
+                PM_REMOVE, SWP_NOACTIVATE, SWP_SHOWWINDOW, SW_SHOWNOACTIVATE, WM_MOUSEACTIVATE,
+                WM_NCHITTEST, WNDCLASSW, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
+                WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP, WS_VISIBLE,
             },
         },
     },
@@ -44,6 +44,7 @@ const MAGNIFICATION_UNAVAILABLE_TEXT: &str =
     "Magnification is unavailable in this process/runtime and has been disabled.";
 type GammaRamp = [[u16; 256]; 3];
 
+// Send dimming work to a dedicated thread so Win32 state stays on one thread.
 enum DimmingCommand {
     Sync {
         method: DimmingMethod,
@@ -56,6 +57,7 @@ enum DimmingCommand {
     Shutdown,
 }
 
+// Expose a simple async-friendly facade over the dimming worker thread.
 #[derive(Clone)]
 pub struct DimmingManager {
     sender: Sender<DimmingCommand>,
@@ -63,13 +65,17 @@ pub struct DimmingManager {
 
 impl DimmingManager {
     pub fn new() -> Self {
+        // Keep overlay windows, gamma ramps, and Magnification APIs on one worker thread.
         let (sender, receiver) = mpsc::channel::<DimmingCommand>();
         thread::spawn(move || dimming_thread(receiver));
         Self { sender }
     }
 
     pub fn sync(&self, method: DimmingMethod, dim_percent: f64) {
-        let _ = self.sender.send(DimmingCommand::Sync { method, dim_percent });
+        let _ = self.sender.send(DimmingCommand::Sync {
+            method,
+            dim_percent,
+        });
     }
 
     pub fn reset_to_full_brightness(&self, method: DimmingMethod) {
@@ -105,6 +111,7 @@ struct MonitorInfo {
     height: i32,
 }
 
+// Manage one transparent overlay window per monitor for the default dimming mode.
 struct OverlayEngine {
     class_name: Vec<u16>,
     overlays: HashMap<String, HWND>,
@@ -131,6 +138,7 @@ impl OverlayEngine {
             .collect::<Vec<_>>();
         let mut changed = !removed.is_empty();
 
+        // Tear down overlay windows for monitors that disappeared.
         for key in removed {
             if let Some(hwnd) = self.overlays.remove(&key) {
                 unsafe {
@@ -139,6 +147,7 @@ impl OverlayEngine {
             }
         }
 
+        // Reposition existing overlays and create any missing monitor windows.
         for monitor in monitors {
             let hwnd = if let Some(hwnd) = self.overlays.get(&monitor.device_name).copied() {
                 hwnd
@@ -181,6 +190,7 @@ impl OverlayEngine {
     }
 }
 
+// Hold an open display DC so gamma ramps can be applied to one monitor at a time.
 struct GammaDevice {
     device_name: String,
     hdc: HDC,
@@ -188,6 +198,7 @@ struct GammaDevice {
 
 impl GammaDevice {
     fn open(device_name: &str) -> Option<Self> {
+        // Open the monitor by device name so later gamma updates can target it directly.
         let driver = widestr(DISPLAY_DRIVER_NAME);
         let device = widestr(device_name);
         let hdc = unsafe {
@@ -236,6 +247,7 @@ impl Drop for GammaDevice {
     }
 }
 
+// Track the display devices that currently support gamma-ramp dimming.
 #[derive(Default)]
 struct GammaEngine {
     devices: HashMap<String, GammaDevice>,
@@ -255,12 +267,16 @@ impl GammaEngine {
             .collect::<Vec<_>>();
         let mut changed = !removed.is_empty();
 
+        // Tear down overlay windows for monitors that disappeared.
+        // Restore removed monitors back to an identity ramp before dropping them.
         for key in removed {
             if let Some(device) = self.devices.remove(&key) {
                 let _ = device.restore_identity();
             }
         }
 
+        // Reposition existing overlays and create any missing monitor windows.
+        // Add any newly detected monitors to the gamma device map.
         for monitor in monitors {
             if self.devices.contains_key(&monitor.device_name) {
                 continue;
@@ -279,6 +295,7 @@ impl GammaEngine {
         let ramp = build_gamma_ramp(dim_percent);
         let mut had_failures = false;
 
+        // Apply the same ramp to every attached gamma-capable display.
         for device in self.devices.values() {
             if !device.apply(&ramp) {
                 had_failures = true;
@@ -295,6 +312,7 @@ impl GammaEngine {
     }
 }
 
+// Wrap the Windows Magnification fullscreen API for the experimental mode.
 #[derive(Default)]
 struct MagnificationEngine {
     initialized: bool,
@@ -302,6 +320,7 @@ struct MagnificationEngine {
 
 impl MagnificationEngine {
     fn ensure_initialized(&mut self) -> bool {
+        // Initialize the Magnification runtime lazily because some environments reject it.
         if self.initialized {
             return true;
         }
@@ -317,6 +336,7 @@ impl MagnificationEngine {
     }
 
     fn apply(&mut self, dim_percent: f64) -> bool {
+        // Apply a color matrix without zoom so the entire desktop simply darkens.
         if !self.ensure_initialized() {
             return true;
         }
@@ -360,6 +380,7 @@ impl MagnificationEngine {
     }
 }
 
+// Probe experimental APIs once at startup so the UI can explain what is available.
 pub fn probe_dimming_capabilities() -> DimmingCapabilities {
     let initialized = unsafe { MagInitialize() }.as_bool();
     if !initialized {
@@ -384,6 +405,7 @@ pub fn probe_dimming_capabilities() -> DimmingCapabilities {
     }
 }
 
+// Make the overlay windows fully click-through so they never steal desktop input.
 unsafe extern "system" fn overlay_window_proc(
     hwnd: HWND,
     message: u32,
@@ -401,6 +423,7 @@ unsafe extern "system" fn overlay_window_proc(
     DefWindowProcW(hwnd, message, w_param, l_param)
 }
 
+// Run all dimming side effects on one thread so Win32 handles and message pumps stay valid.
 fn dimming_thread(receiver: mpsc::Receiver<DimmingCommand>) {
     let class_name = widestr("DimsomeOverlayWindow");
     register_overlay_window_class(&class_name);
@@ -414,7 +437,11 @@ fn dimming_thread(receiver: mpsc::Receiver<DimmingCommand>) {
 
     loop {
         match receiver.recv_timeout(Duration::from_millis(250)) {
-            Ok(DimmingCommand::Sync { method, dim_percent }) => {
+            Ok(DimmingCommand::Sync {
+                method,
+                dim_percent,
+            }) => {
+                // Clamp every incoming value so the engines never see unsupported percentages.
                 let dim_percent = clamp_dim_precise(dim_percent);
 
                 if active_method.as_ref() != Some(&method) {
@@ -429,6 +456,7 @@ fn dimming_thread(receiver: mpsc::Receiver<DimmingCommand>) {
                     needs_apply = true;
                 }
 
+                // Refresh monitor state only for engines that work per display.
                 let monitors_changed = match method {
                     DimmingMethod::Overlay => {
                         let monitors = enumerate_monitors();
@@ -446,6 +474,7 @@ fn dimming_thread(receiver: mpsc::Receiver<DimmingCommand>) {
                 }
 
                 if needs_apply {
+                    // Retry failed engine updates on the next pass until they succeed or reset.
                     let had_failures = match method {
                         DimmingMethod::Overlay => {
                             overlay_engine.apply(dim_percent);
@@ -459,6 +488,7 @@ fn dimming_thread(receiver: mpsc::Receiver<DimmingCommand>) {
                 }
             }
             Ok(DimmingCommand::ResetAndAck { method, reply }) => {
+                // Force the active engine back to full brightness before acknowledging shutdown.
                 let dim_percent = 0.0;
 
                 if active_method.as_ref() != Some(&method) {
@@ -508,6 +538,7 @@ fn dimming_thread(receiver: mpsc::Receiver<DimmingCommand>) {
     );
 }
 
+// Cleanly tear down whichever engine was active before switching methods or exiting.
 fn deactivate_active_method(
     method: Option<&DimmingMethod>,
     overlay_engine: &mut OverlayEngine,
@@ -522,6 +553,7 @@ fn deactivate_active_method(
     }
 }
 
+// Register one hidden window class that every monitor overlay can share.
 fn register_overlay_window_class(class_name: &[u16]) {
     unsafe {
         let instance = GetModuleHandleW(PCWSTR::null()).expect("overlay module handle");
@@ -536,6 +568,7 @@ fn register_overlay_window_class(class_name: &[u16]) {
     }
 }
 
+// Keep the worker thread responsive to window and Magnification messages.
 fn pump_messages() {
     unsafe {
         let mut msg = MSG::default();
@@ -546,15 +579,12 @@ fn pump_messages() {
     }
 }
 
+// Create a click-through topmost window sized exactly to one monitor.
 fn create_overlay_window(class_name: &[u16], monitor: &MonitorInfo) -> HWND {
     let title = widestr(&format!("Dimsome Overlay {}", monitor.device_name));
     unsafe {
         CreateWindowExW(
-            WS_EX_TOPMOST
-                | WS_EX_TOOLWINDOW
-                | WS_EX_NOACTIVATE
-                | WS_EX_LAYERED
-                | WS_EX_TRANSPARENT,
+            WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_LAYERED | WS_EX_TRANSPARENT,
             PCWSTR(class_name.as_ptr()),
             PCWSTR(title.as_ptr()),
             WS_POPUP | WS_VISIBLE,
@@ -582,10 +612,12 @@ fn build_identity_gamma_ramp() -> GammaRamp {
     build_gamma_ramp(0.0)
 }
 
+// Scale the identity gamma ramp down uniformly to simulate lower brightness.
 fn build_gamma_ramp(dim_percent: f64) -> GammaRamp {
     let brightness_scale = 1.0 - (clamp_dim_precise(dim_percent) / 100.0);
     let mut ramp = [[0u16; 256]; 3];
 
+    // Fill each channel with the same curve so dimming stays grayscale-neutral.
     for index in 0..256 {
         let identity_value = (index as u32) * 257;
         let scaled_value = ((identity_value as f64) * brightness_scale)
@@ -604,6 +636,7 @@ fn build_identity_magnification_effect() -> MAGCOLOREFFECT {
     build_magnification_effect(0.0)
 }
 
+// Build a fullscreen color matrix that scales RGB channels equally.
 fn build_magnification_effect(dim_percent: f64) -> MAGCOLOREFFECT {
     let brightness_scale = (1.0 - (clamp_dim_precise(dim_percent) / 100.0)) as f32;
 
@@ -638,6 +671,7 @@ fn build_magnification_effect(dim_percent: f64) -> MAGCOLOREFFECT {
     }
 }
 
+// Snapshot the connected monitors so overlay and gamma engines can mirror them.
 fn enumerate_monitors() -> Vec<MonitorInfo> {
     unsafe extern "system" fn callback(
         hmonitor: HMONITOR,
@@ -649,6 +683,7 @@ fn enumerate_monitors() -> Vec<MonitorInfo> {
         let mut info = MONITORINFOEXW::default();
         info.monitorInfo.cbSize = std::mem::size_of::<MONITORINFOEXW>() as u32;
         if GetMonitorInfoW(hmonitor, &mut info as *mut _ as *mut _).as_bool() {
+            // Convert the monitor name and bounds into a Rust-owned description.
             let end = info
                 .szDevice
                 .iter()
@@ -678,6 +713,7 @@ fn enumerate_monitors() -> Vec<MonitorInfo> {
     monitors
 }
 
+// Convert Rust strings to nul-terminated UTF-16 buffers for Win32 calls.
 fn widestr(value: &str) -> Vec<u16> {
     value.encode_utf16().chain(std::iter::once(0)).collect()
 }

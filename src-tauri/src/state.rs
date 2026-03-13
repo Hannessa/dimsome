@@ -9,7 +9,7 @@ use crate::{
         AppSettings, DimmingCapabilities, DimmingMethod, EffectiveDimMode, EffectiveDimState,
         ManualOverrideSession,
     },
-    schedule::{get_effective_dim, now_fixed, normalize_settings, resolve_state},
+    schedule::{get_effective_dim, normalize_settings, now_fixed, resolve_state},
     settings,
     windows::{probe_dimming_capabilities, DimmingManager},
 };
@@ -27,8 +27,10 @@ pub struct RuntimeState {
 
 impl RuntimeState {
     fn new(settings: AppSettings) -> Self {
+        // Probe the platform once so unsupported dimming modes can be filtered immediately.
         let dimming_capabilities = probe_dimming_capabilities();
-        let settings = coerce_settings_for_capabilities(normalize_settings(settings), &dimming_capabilities);
+        let settings =
+            coerce_settings_for_capabilities(normalize_settings(settings), &dimming_capabilities);
 
         Self {
             settings,
@@ -68,10 +70,12 @@ pub async fn refresh_state(shared: &SharedState, app: Option<&AppHandle>) -> Eff
         now,
     );
 
+    // Keep the in-memory state and the active dimming engine synchronized.
     state.current_state = next.clone();
-    state
-        .dimming_manager
-        .sync(state.settings.dimming_method.clone(), next.current_dim_percent);
+    state.dimming_manager.sync(
+        state.settings.dimming_method.clone(),
+        next.current_dim_percent,
+    );
 
     if next.mode == EffectiveDimMode::Auto {
         state.manual_dim_percent = None;
@@ -95,19 +99,26 @@ pub async fn reset_dimming_before_exit(shared: &SharedState) {
 pub fn start_loop(shared: SharedState, app: AppHandle) {
     tauri::async_runtime::spawn(async move {
         loop {
+            // Re-evaluate on a short interval so schedule transitions stay smooth.
             let _ = refresh_state(&shared, Some(&app)).await;
             tokio::time::sleep(Duration::from_secs(1)).await;
         }
     });
 }
 
-pub async fn update_settings(shared: &SharedState, app: &AppHandle, settings: AppSettings) -> Result<AppSettings, String> {
+pub async fn update_settings(
+    shared: &SharedState,
+    app: &AppHandle,
+    settings: AppSettings,
+) -> Result<AppSettings, String> {
     let capabilities = shared.read().await.dimming_capabilities.clone();
-    let saved = settings::save_settings(&coerce_settings_for_capabilities(settings, &capabilities))?;
+    let saved =
+        settings::save_settings(&coerce_settings_for_capabilities(settings, &capabilities))?;
     {
         let mut state = shared.write().await;
         state.settings = saved.clone();
         if let Ok(schedule) = get_effective_dim(&state.settings, now_fixed()) {
+            // Expire any manual override when the next scheduled transition begins.
             state.manual_override_until = schedule.next_transition_start;
         }
     }
@@ -116,9 +127,14 @@ pub async fn update_settings(shared: &SharedState, app: &AppHandle, settings: Ap
     Ok(saved)
 }
 
-pub async fn apply_manual_dim(shared: &SharedState, app: &AppHandle, dim_percent: f64) -> EffectiveDimState {
+pub async fn apply_manual_dim(
+    shared: &SharedState,
+    app: &AppHandle,
+    dim_percent: f64,
+) -> EffectiveDimState {
     {
         let mut state = shared.write().await;
+        // Manual changes resume scheduling later, rather than permanently disabling it.
         state.manual_dim_percent = Some(dim_percent);
         state.schedule_paused = false;
         state.manual_override_until = get_effective_dim(&state.settings, now_fixed())
@@ -140,6 +156,7 @@ pub async fn nudge(shared: &SharedState, app: &AppHandle, direction: f64) -> Eff
 pub async fn pause(shared: &SharedState, app: &AppHandle) -> EffectiveDimState {
     {
         let mut state = shared.write().await;
+        // Freeze the current dim value so pause keeps the desktop exactly as-is.
         state.schedule_paused = true;
         state.manual_dim_percent = None;
         state.manual_override_until = None;
@@ -162,7 +179,10 @@ fn coerce_settings_for_capabilities(
     mut settings: AppSettings,
     capabilities: &DimmingCapabilities,
 ) -> AppSettings {
-    if !capabilities.magnification_available && settings.dimming_method == DimmingMethod::Magnification {
+    if !capabilities.magnification_available
+        && settings.dimming_method == DimmingMethod::Magnification
+    {
+        // Downgrade unsupported persisted settings to the safest available method.
         settings.dimming_method = DimmingMethod::Overlay;
     }
 

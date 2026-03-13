@@ -3,6 +3,7 @@ import { ref, useAttrs } from "vue";
 import PrimeSlider from "primevue/slider";
 import type { SliderSlideEndEvent } from "primevue/slider";
 
+// Mirror PrimeVue's slider API while adding full-track pointer dragging.
 const props = withDefaults(
   defineProps<{
     modelValue: number | number[];
@@ -29,6 +30,7 @@ const props = withDefaults(
   }
 );
 
+// Re-emit PrimeVue events so parent components can treat this like a normal input.
 const emit = defineEmits<{
   "update:modelValue": [value: number | number[]];
   slideend: [event: SliderSlideEndEvent];
@@ -40,10 +42,12 @@ const isTrackDragging = ref(false);
 const lastTrackValue = ref<number | number[] | null>(null);
 let activePointerId: number | null = null;
 
+// Keep all pointer-derived values inside the configured slider bounds.
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
 
+// Snap movement relative to the current value so stepped dragging feels predictable.
 function normalizeValue(rawValue: number, currentValue: number) {
   if (!props.step) {
     return clamp(rawValue, props.min, props.max);
@@ -62,12 +66,14 @@ function normalizeValue(rawValue: number, currentValue: number) {
   return clamp(currentValue, props.min, props.max);
 }
 
+// PrimeVue exposes the DOM node through $el, so normalize it once here.
 function getSliderElement() {
   const element = sliderRef.value?.$el;
 
   return element instanceof HTMLElement ? element : undefined;
 }
 
+// Translate the active pointer position into a slider value for either orientation.
 function getPointerValue(event: PointerEvent) {
   const sliderElement = getSliderElement();
 
@@ -83,6 +89,7 @@ function getPointerValue(event: PointerEvent) {
 
   if (Array.isArray(props.modelValue)) {
     const values = [...props.modelValue];
+    // When this is a range slider, move whichever handle is closest to the pointer.
     const distances = values.map((value) => Math.abs(value - rawValue));
     const handleIndex = distances[0] <= distances[1] ? 0 : 1;
     values[handleIndex] = normalizeValue(rawValue, values[handleIndex]);
@@ -93,6 +100,7 @@ function getPointerValue(event: PointerEvent) {
   return normalizeValue(rawValue, props.modelValue);
 }
 
+// Start a custom drag only when the user clicks the track, not an existing handle.
 function onPointerDown(event: PointerEvent) {
   if (props.disabled || event.button !== 0) {
     return;
@@ -118,6 +126,7 @@ function onPointerDown(event: PointerEvent) {
   event.preventDefault();
 }
 
+// Keep updating the model while the captured pointer moves across the track.
 function onPointerMove(event: PointerEvent) {
   if (!isTrackDragging.value || activePointerId !== event.pointerId) {
     return;
@@ -127,6 +136,7 @@ function onPointerMove(event: PointerEvent) {
   emit("update:modelValue", lastTrackValue.value);
 }
 
+// Release capture and emit one final slideend event that matches PrimeVue's contract.
 function finishTrackDrag(event: PointerEvent) {
   const sliderElement = getSliderElement();
 
@@ -142,6 +152,7 @@ function finishTrackDrag(event: PointerEvent) {
   emit("slideend", { originalEvent: event, value: slideEndValue });
 }
 
+// Only end the drag for the pointer that originally captured the track.
 function onPointerUp(event: PointerEvent) {
   if (!isTrackDragging.value || activePointerId !== event.pointerId) {
     return;
@@ -150,6 +161,7 @@ function onPointerUp(event: PointerEvent) {
   finishTrackDrag(event);
 }
 
+// Treat cancellation the same as pointer release so cleanup always runs.
 function onPointerCancel(event: PointerEvent) {
   if (!isTrackDragging.value || activePointerId !== event.pointerId) {
     return;
@@ -188,10 +200,12 @@ function onPointerCancel(event: PointerEvent) {
 
 <style scoped>
 .app-slider {
+  /* Prevent the browser from hijacking touch and pen gestures during drags. */
   touch-action: none;
 }
 
 .app-slider :deep(.p-slider-horizontal) {
+  /* Give the horizontal track a larger hit area without changing the visual bar. */
   position: relative;
   height: 1.75rem;
 }
@@ -206,6 +220,7 @@ function onPointerCancel(event: PointerEvent) {
 }
 
 .app-slider :deep(.p-slider-horizontal::before) {
+  /* Draw a subtle base track under PrimeVue's active range segment. */
   content: "";
   inset-inline: 0;
   background: color-mix(in srgb, var(--accent) 18%, transparent);
@@ -216,9 +231,9 @@ function onPointerCancel(event: PointerEvent) {
 }
 
 .app-slider :deep(.p-slider-horizontal .p-slider-handle) {
+  /* Slightly enlarge the handle so desktop dragging feels less fiddly. */
   width: 1.2rem;
   height: 1.2rem;
   margin-top: -0.6rem;
 }
 </style>
-

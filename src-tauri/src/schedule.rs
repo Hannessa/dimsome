@@ -1,4 +1,6 @@
-use chrono::{DateTime, Datelike, Duration, FixedOffset, Local, NaiveDate, NaiveTime, Offset, TimeZone};
+use chrono::{
+    DateTime, Datelike, Duration, FixedOffset, Local, NaiveDate, NaiveTime, Offset, TimeZone,
+};
 
 use crate::models::{
     AppSettings, EffectiveDimMode, EffectiveDimState, ManualOverrideSession, ScheduleEvaluation,
@@ -11,6 +13,7 @@ pub fn clamp_dim_precise(value: f64) -> f64 {
 
 pub fn normalize_settings(settings: AppSettings) -> AppSettings {
     let mut normalized = settings;
+    // Update saved settings to the latest schema and keep user input inside supported ranges.
     normalized.version = crate::models::CURRENT_VERSION;
     normalized.dim_step_percent = normalized.dim_step_percent.clamp(1.0, 25.0);
     normalized.schedule_points = normalize_points(normalized.schedule_points);
@@ -21,6 +24,7 @@ pub fn normalize_points(points: Vec<SchedulePoint>) -> Vec<SchedulePoint> {
     let mut points = points
         .into_iter()
         .map(|mut point| {
+            // Clamp persisted values so bad edits never propagate into schedule math.
             point.target_dim_percent = clamp_dim_precise(point.target_dim_percent);
             point.transition_minutes = point.transition_minutes.clamp(0, 1_439);
             point
@@ -53,6 +57,7 @@ pub fn validate_points(points: &[SchedulePoint]) -> Result<(), String> {
     let offset = FixedOffset::east_opt(0).unwrap();
     let mut occurrences = Vec::new();
 
+    // Expand the schedule across two days so midnight-spanning overlaps are detected.
     for day_offset in 0..=1 {
         let date = baseline + Duration::days(day_offset);
         for point in &enabled_points {
@@ -107,6 +112,7 @@ pub fn get_effective_dim(
     let mut occurrences = build_occurrences(&normalized, now)?;
     occurrences.sort_by_key(|item| item.target_time);
 
+    // Prefer the active transition window when one is in progress.
     let active = occurrences
         .iter()
         .filter(|occurrence| occurrence.transition_start <= now && now <= occurrence.target_time)
@@ -120,8 +126,10 @@ pub fn get_effective_dim(
         } else {
             (elapsed / duration).clamp(0.0, 1.0)
         };
-        active.start_dim_percent + ((active.target_dim_percent - active.start_dim_percent) * progress)
+        active.start_dim_percent
+            + ((active.target_dim_percent - active.start_dim_percent) * progress)
     } else {
+        // Otherwise keep the most recent completed target dim until the next transition begins.
         occurrences
             .iter()
             .filter(|occurrence| occurrence.target_time <= now)
@@ -142,7 +150,11 @@ pub fn get_effective_dim(
     })
 }
 
-pub fn resolve_state(settings: &AppSettings, session: &ManualOverrideSession, now: DateTime<FixedOffset>) -> EffectiveDimState {
+pub fn resolve_state(
+    settings: &AppSettings,
+    session: &ManualOverrideSession,
+    now: DateTime<FixedOffset>,
+) -> EffectiveDimState {
     if session.is_paused {
         return EffectiveDimState {
             mode: EffectiveDimMode::Paused,
@@ -152,7 +164,11 @@ pub fn resolve_state(settings: &AppSettings, session: &ManualOverrideSession, no
     }
 
     if let Some(manual) = session.manual_dim_percent {
-        if session.manual_override_until.map(|until| now < until).unwrap_or(true) {
+        if session
+            .manual_override_until
+            .map(|until| now < until)
+            .unwrap_or(true)
+        {
             return EffectiveDimState {
                 mode: EffectiveDimMode::Manual,
                 current_dim_percent: clamp_dim_precise(manual),
@@ -161,6 +177,7 @@ pub fn resolve_state(settings: &AppSettings, session: &ManualOverrideSession, no
         }
     }
 
+    // Once the manual override expires, fall back to the computed schedule state.
     let scheduled = get_effective_dim(settings, now).unwrap_or(ScheduleEvaluation {
         current_dim_percent: 0.0,
         next_transition_start: None,
@@ -198,19 +215,32 @@ fn build_occurrences(
     let today = NaiveDate::from_ymd_opt(now.year(), now.month(), now.day()).unwrap();
     let mut occurrences = Vec::new();
 
+    // Build a rolling window around today so previous and next points are always available.
     for day_offset in -2..=2 {
         let date = today + Duration::days(day_offset);
         for point in points {
             let naive_target = date.and_time(parse_time(&point.time_of_day)?);
-            let target_time = now.offset().from_local_datetime(&naive_target).single().unwrap();
-            occurrences.push((point.clone(), target_time, clamp_dim_precise(point.target_dim_percent)));
+            let target_time = now
+                .offset()
+                .from_local_datetime(&naive_target)
+                .single()
+                .unwrap();
+            occurrences.push((
+                point.clone(),
+                target_time,
+                clamp_dim_precise(point.target_dim_percent),
+            ));
         }
     }
 
     occurrences.sort_by_key(|item| item.1);
     let mut final_occurrences = Vec::new();
     for index in 0..occurrences.len() {
-        let previous_index = if index == 0 { occurrences.len() - 1 } else { index - 1 };
+        let previous_index = if index == 0 {
+            occurrences.len() - 1
+        } else {
+            index - 1
+        };
         let current = &occurrences[index];
         let previous = &occurrences[previous_index];
         final_occurrences.push(Occurrence {
@@ -242,13 +272,13 @@ mod tests {
         }
     }
 
-
     #[test]
     fn clamp_dim_precise_rounds_to_hundredths_and_caps_at_ninety_nine() {
         assert_eq!(clamp_dim_precise(-1.0), 0.0);
         assert_eq!(clamp_dim_precise(99.999), 99.0);
         assert_eq!(clamp_dim_precise(12.3456), 12.35);
     }
+
     #[test]
     fn interpolates_within_transition_window() {
         let settings = AppSettings {
@@ -256,7 +286,9 @@ mod tests {
             ..AppSettings::default()
         };
         let offset = FixedOffset::east_opt(3600).unwrap();
-        let now = DateTime::parse_from_rfc3339("2026-03-12T22:30:00+01:00").unwrap().with_timezone(&offset);
+        let now = DateTime::parse_from_rfc3339("2026-03-12T22:30:00+01:00")
+            .unwrap()
+            .with_timezone(&offset);
         let result = get_effective_dim(&settings, now).unwrap();
         assert!((result.current_dim_percent - 25.0).abs() < 0.01);
     }
@@ -276,7 +308,9 @@ mod tests {
         let offset = FixedOffset::east_opt(3600).unwrap();
         let schedule = get_effective_dim(
             &settings,
-            DateTime::parse_from_rfc3339("2026-03-12T21:30:00+01:00").unwrap().with_timezone(&offset),
+            DateTime::parse_from_rfc3339("2026-03-12T21:30:00+01:00")
+                .unwrap()
+                .with_timezone(&offset),
         )
         .unwrap();
         let session = ManualOverrideSession {
@@ -288,16 +322,18 @@ mod tests {
         let before = resolve_state(
             &settings,
             &session,
-            DateTime::parse_from_rfc3339("2026-03-12T21:45:00+01:00").unwrap().with_timezone(&offset),
+            DateTime::parse_from_rfc3339("2026-03-12T21:45:00+01:00")
+                .unwrap()
+                .with_timezone(&offset),
         );
         let at_start = resolve_state(
             &settings,
             &session,
-            DateTime::parse_from_rfc3339("2026-03-12T22:00:00+01:00").unwrap().with_timezone(&offset),
+            DateTime::parse_from_rfc3339("2026-03-12T22:00:00+01:00")
+                .unwrap()
+                .with_timezone(&offset),
         );
         assert_eq!(before.mode, EffectiveDimMode::Manual);
         assert_eq!(at_start.mode, EffectiveDimMode::Auto);
     }
 }
-
-

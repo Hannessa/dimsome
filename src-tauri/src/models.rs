@@ -40,6 +40,7 @@ pub struct AppSettings {
 
 impl Default for AppSettings {
     fn default() -> Self {
+        // Seed the app with one daytime point and one nighttime point out of the box.
         Self {
             version: CURRENT_VERSION,
             startup_enabled: true,
@@ -77,6 +78,7 @@ pub struct ManualHotkeys {
 
 impl Default for ManualHotkeys {
     fn default() -> Self {
+        // Default to Alt+PageUp/PageDown so the shortcuts work on a fresh install.
         Self {
             dim_more: HotkeyBinding {
                 enabled: true,
@@ -184,7 +186,9 @@ mod tests {
             "schedulePoints": []
         });
 
-        let settings: AppSettings = serde_json::from_value(json).expect("legacy settings should deserialize");
+        // Legacy settings files should still deserialize after new fields are added.
+        let settings: AppSettings =
+            serde_json::from_value(json).expect("legacy settings should deserialize");
 
         assert_eq!(settings.dimming_method, DimmingMethod::Overlay);
     }
@@ -192,7 +196,8 @@ mod tests {
     #[test]
     fn dimming_method_supports_magnification_value() {
         let json = json!("magnification");
-        let method: DimmingMethod = serde_json::from_value(json).expect("magnification should deserialize");
+        let method: DimmingMethod =
+            serde_json::from_value(json).expect("magnification should deserialize");
 
         assert_eq!(method, DimmingMethod::Magnification);
     }

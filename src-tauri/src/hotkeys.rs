@@ -37,6 +37,7 @@ impl HotkeyManager {
     where
         F: Fn(HotkeyAction) + Send + 'static,
     {
+        // Run Win32 hotkey registration on its own thread with its own message pump.
         let (sender, receiver) = mpsc::channel::<HotkeyCommand>();
         thread::spawn(move || hotkey_thread(receiver, Box::new(handler)));
         Self { sender }
@@ -57,6 +58,7 @@ fn hotkey_thread(receiver: Receiver<HotkeyCommand>, handler: Box<dyn Fn(HotkeyAc
     ensure_message_queue();
 
     loop {
+        // Drain any queued binding updates before we wait for the next event.
         while let Ok(command) = receiver.try_recv() {
             if !handle_command(command) {
                 unregister_all();
@@ -76,6 +78,7 @@ fn hotkey_thread(receiver: Receiver<HotkeyCommand>, handler: Box<dyn Fn(HotkeyAc
             Err(RecvTimeoutError::Disconnected) => break,
         }
 
+        // Process any WM_HOTKEY messages that arrived while we were waiting.
         pump_hotkey_messages(&handler);
     }
 
@@ -94,12 +97,14 @@ fn handle_command(command: HotkeyCommand) -> bool {
 
 fn ensure_message_queue() {
     unsafe {
+        // Touch the message queue once so RegisterHotKey has a thread queue to target.
         let mut msg = MSG::default();
         let _ = PeekMessageW(&mut msg, None, WM_HOTKEY, WM_HOTKEY, PM_NOREMOVE);
     }
 }
 
 fn update_registrations(hotkeys: &ManualHotkeys) {
+    // Re-register from scratch so the active bindings always match saved settings.
     unregister_all();
     register_binding(&hotkeys.dim_more, HOTKEY_DIM_MORE_ID, "Dim more");
     register_binding(&hotkeys.dim_less, HOTKEY_DIM_LESS_ID, "Dim less");
@@ -118,16 +123,23 @@ fn register_binding(binding: &HotkeyBinding, id: i32, label: &str) {
     }
 
     let Some(modifiers) = parse_modifier_flags(&binding.modifiers) else {
-        eprintln!("{label} hotkey ignored because modifiers '{0}' could not be parsed.", binding.modifiers);
+        eprintln!(
+            "{label} hotkey ignored because modifiers '{0}' could not be parsed.",
+            binding.modifiers
+        );
         return;
     };
 
     let Some(virtual_key) = virtual_key_code(&binding.key) else {
-        eprintln!("{label} hotkey ignored because key '{0}' is unsupported.", binding.key);
+        eprintln!(
+            "{label} hotkey ignored because key '{0}' is unsupported.",
+            binding.key
+        );
         return;
     };
 
     unsafe {
+        // Let Windows own the actual chord matching once the binding is registered.
         if let Err(error) = RegisterHotKey(None, id, modifiers, virtual_key) {
             eprintln!("{label} hotkey registration failed: {error}");
         }
@@ -151,6 +163,7 @@ fn parse_modifier_flags(text: &str) -> Option<HOT_KEY_MODIFIERS> {
     let mut saw_token = false;
     let mut modifiers = HOT_KEY_MODIFIERS(0);
 
+    // Accept either comma- or plus-separated modifier strings from persisted settings.
     for token in text.split(|character| character == '+' || character == ',') {
         let normalized = token.trim().to_ascii_lowercase();
         if normalized.is_empty() {
@@ -183,6 +196,7 @@ fn virtual_key_code(key: &str) -> Option<u32> {
         }
     }
 
+    // Map the named keys we expose in settings onto Win32 virtual-key codes.
     match normalized.to_ascii_lowercase().as_str() {
         "pageup" => Some(0x21),
         "pagedown" => Some(0x22),
@@ -216,7 +230,10 @@ mod tests {
 
     #[test]
     fn parses_single_modifier() {
-        assert_eq!(parse_modifier_flags("Alt").map(|value| value.0), Some(MOD_ALT.0));
+        assert_eq!(
+            parse_modifier_flags("Alt").map(|value| value.0),
+            Some(MOD_ALT.0)
+        );
     }
 
     #[test]

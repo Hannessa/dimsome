@@ -2,6 +2,7 @@
 pub fn get_startup_state() -> crate::models::StartupRegistrationState {
     use std::process::Command;
 
+    // Read the standard Run key so startup behavior matches Windows expectations.
     let value = Command::new("reg")
         .args([
             "query",
@@ -26,9 +27,13 @@ pub fn get_startup_state() -> crate::models::StartupRegistrationState {
 }
 
 #[cfg(target_os = "windows")]
-pub fn set_startup_enabled(enabled: bool, executable_path: &str) -> Result<crate::models::StartupRegistrationState, String> {
+pub fn set_startup_enabled(
+    enabled: bool,
+    executable_path: &str,
+) -> Result<crate::models::StartupRegistrationState, String> {
     use std::process::Command;
 
+    // Add or remove the Run entry instead of keeping a separate startup manifest.
     let status = if enabled {
         Command::new("reg")
             .args([
@@ -73,6 +78,10 @@ pub fn get_startup_state() -> crate::models::StartupRegistrationState {
 }
 
 #[cfg(not(target_os = "windows"))]
-pub fn set_startup_enabled(_enabled: bool, _executable_path: &str) -> Result<crate::models::StartupRegistrationState, String> {
+pub fn set_startup_enabled(
+    _enabled: bool,
+    _executable_path: &str,
+) -> Result<crate::models::StartupRegistrationState, String> {
+    // Non-Windows builds report capability without pretending the operation succeeded.
     Ok(get_startup_state())
 }

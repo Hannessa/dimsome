@@ -1,6 +1,7 @@
 import { listen } from "@tauri-apps/api/event";
 import type { AppSettings, EffectiveDimState, StartupRegistrationState } from "../types/app";
 
+// Wrap the app-wide Tauri events in small typed helpers for the settings view.
 export const onStateChanged = (handler: (state: EffectiveDimState) => void) =>
   listen<EffectiveDimState>("state_changed", (event) => handler(event.payload));
 

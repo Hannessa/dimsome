@@ -6,6 +6,7 @@ const tauriConfigPath = path.join(workspaceRoot, "src-tauri", "tauri.conf.json")
 const cargoManifestPath = path.join(workspaceRoot, "src-tauri", "Cargo.toml");
 const releaseDir = path.join(workspaceRoot, "release");
 
+// Read the app metadata once so the copied artifacts follow the bundled version names.
 const tauriConfig = JSON.parse(fs.readFileSync(tauriConfigPath, "utf8"));
 const cargoManifest = fs.readFileSync(cargoManifestPath, "utf8");
 
@@ -26,6 +27,7 @@ const sourceInstallerPath = path.join(workspaceRoot, "src-tauri", "target", "rel
 const portableExePath = path.join(releaseDir, portableExeName);
 const installerPath = path.join(releaseDir, installerName);
 
+// Fail fast when the expected Tauri build outputs are not present.
 if (!fs.existsSync(sourceExePath)) {
   throw new Error(`Expected release executable was not found: ${sourceExePath}`);
 }
@@ -34,6 +36,7 @@ if (!fs.existsSync(sourceInstallerPath)) {
   throw new Error(`Expected installer was not found: ${sourceInstallerPath}`);
 }
 
+// Copy the final release artifacts into one predictable folder for publishing.
 fs.mkdirSync(releaseDir, { recursive: true });
 fs.copyFileSync(sourceExePath, portableExePath);
 fs.copyFileSync(sourceInstallerPath, installerPath);

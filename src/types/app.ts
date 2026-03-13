@@ -1,3 +1,4 @@
+// Share the app's settings and runtime contracts between Vue and Tauri.
 export interface HotkeyBinding {
   enabled: boolean;
   modifiers: string;

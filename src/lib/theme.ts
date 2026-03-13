@@ -7,6 +7,7 @@ const APP_LIGHT_CLASS = "app-light";
 let activePreference: AppearanceMode | null = null;
 let mediaQueryList: MediaQueryList | null = null;
 
+// Cache the media query object so we only register one system-theme listener.
 function getMediaQueryList() {
   if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
     return null;
@@ -20,10 +21,12 @@ function getMediaQueryList() {
   return mediaQueryList;
 }
 
+// Fall back to light mode when the browser cannot resolve system appearance.
 function prefersDarkMode() {
   return getMediaQueryList()?.matches ?? false;
 }
 
+// Toggle explicit root classes so both CSS and PrimeVue can react to one source of truth.
 function applyThemeClasses() {
   if (typeof document === "undefined") {
     return;
@@ -35,6 +38,7 @@ function applyThemeClasses() {
 }
 
 export function syncAppearanceMode(preference?: AppearanceMode | null) {
+  // Null means "follow system", while an explicit value overrides the media query.
   activePreference = preference ?? null;
   applyThemeClasses();
 }

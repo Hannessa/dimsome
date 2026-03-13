@@ -1,6 +1,7 @@
 @import "tailwindcss";
 
 :root {
+  /* Define the shared light theme tokens and ambient background. */
   font-family: "Segoe UI Variable Text", "Segoe UI", sans-serif;
   --bg: #f8eff5;
   --bg-accent: rgba(236, 72, 153, 0.16);
@@ -20,6 +21,7 @@
 }
 
 :root.app-dark {
+  /* Swap the same token names so components can react to one class change. */
   color-scheme: dark;
   --bg: #140d12;
   --bg-accent: rgba(236, 72, 153, 0.18);
@@ -38,10 +40,12 @@
 }
 
 :root.app-light {
+  /* Keep an explicit light class so system-following mode can toggle cleanly. */
   color-scheme: light;
 }
 
 @layer base {
+  /* Normalize interaction quirks for a desktop-style Tauri window. */
   *,
   ::before,
   ::after {
@@ -62,6 +66,7 @@
   }
 
   body {
+    /* Let the root gradient show through without fighting body defaults. */
     min-height: 100vh;
     background: transparent;
     color: var(--text);
@@ -84,6 +89,7 @@
 }
 
 @layer components {
+  /* Reuse the same frosted-card treatment across the settings panels. */
   .glass-card {
     background: var(--panel);
     border: 1px solid var(--stroke);
@@ -98,6 +104,7 @@
   }
 }
 
+/* Stretch PrimeVue controls to the available form width by default. */
 .p-inputtext,
 .p-inputnumber,
 .p-select,
@@ -109,6 +116,6 @@
 }
 
 .p-button {
+  /* Avoid wrapping action labels inside the compact card layouts. */
   white-space: nowrap;
 }
-

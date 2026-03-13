@@ -8,6 +8,7 @@ import { getSettings } from "./lib/api";
 import { syncAppearanceMode } from "./lib/theme";
 import "./styles.css";
 
+// Start from PrimeVue's Material tokens and tint them to Dimsome's palette.
 const DimsomePreset = definePreset(Material, {
   semantic: {
     primary: {
@@ -34,10 +35,13 @@ const DimsomePreset = definePreset(Material, {
 });
 
 async function bootstrap() {
+  // Create the Vue app before we fetch persisted settings and theme preferences.
   const app = createApp(App);
+  // Apply the saved appearance mode before mount so the first paint is correct.
   const settings = await getSettings().catch(() => null);
   syncAppearanceMode(settings?.appearanceMode);
 
+  // Install PrimeVue once with the custom preset and app-level dark selector.
   app.use(PrimeVue, {
     ripple: true,
     theme: {
@@ -48,6 +52,7 @@ async function bootstrap() {
     }
   });
 
+  // Mount after theme classes and PrimeVue configuration are in place.
   app.mount("#app");
 }
 

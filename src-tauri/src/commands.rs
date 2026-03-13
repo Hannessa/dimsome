@@ -9,11 +9,14 @@ use crate::{
 
 #[tauri::command]
 pub async fn get_settings(state: State<'_, SharedState>) -> Result<AppSettings, String> {
+    // Return the current in-memory copy so the window can initialize quickly.
     Ok(state.read().await.settings.clone())
 }
 
 #[tauri::command]
-pub async fn get_dimming_capabilities(state: State<'_, SharedState>) -> Result<DimmingCapabilities, String> {
+pub async fn get_dimming_capabilities(
+    state: State<'_, SharedState>,
+) -> Result<DimmingCapabilities, String> {
     Ok(state.read().await.dimming_capabilities.clone())
 }
 
@@ -24,13 +27,16 @@ pub async fn save_settings(
     hotkeys: State<'_, HotkeyManager>,
     settings: AppSettings,
 ) -> Result<AppSettings, String> {
+    // Persist settings first, then re-register any changed hotkeys.
     let saved = state::update_settings(&state.inner().clone(), &app, settings).await?;
     hotkeys.update_bindings(saved.manual_hotkeys.clone());
     Ok(saved)
 }
 
 #[tauri::command]
-pub async fn get_effective_state(state: State<'_, SharedState>) -> Result<EffectiveDimState, String> {
+pub async fn get_effective_state(
+    state: State<'_, SharedState>,
+) -> Result<EffectiveDimState, String> {
     Ok(state.read().await.current_state.clone())
 }
 
@@ -44,12 +50,18 @@ pub async fn apply_manual_dim(
 }
 
 #[tauri::command]
-pub async fn pause_schedule(app: AppHandle, state: State<'_, SharedState>) -> Result<EffectiveDimState, String> {
+pub async fn pause_schedule(
+    app: AppHandle,
+    state: State<'_, SharedState>,
+) -> Result<EffectiveDimState, String> {
     Ok(state::pause(&state.inner().clone(), &app).await)
 }
 
 #[tauri::command]
-pub async fn resume_schedule(app: AppHandle, state: State<'_, SharedState>) -> Result<EffectiveDimState, String> {
+pub async fn resume_schedule(
+    app: AppHandle,
+    state: State<'_, SharedState>,
+) -> Result<EffectiveDimState, String> {
     Ok(state::resume(&state.inner().clone(), &app).await)
 }
 
@@ -63,6 +75,7 @@ pub async fn set_startup_enabled(
     app: AppHandle,
     enabled: bool,
 ) -> Result<StartupRegistrationState, String> {
+    // Resolve the current executable so the Run key points at the installed binary.
     let executable = std::env::current_exe()
         .map_err(|error| error.to_string())?
         .display()
@@ -74,6 +87,7 @@ pub async fn set_startup_enabled(
 
 #[tauri::command]
 pub async fn exit_app(window: Window, state: State<'_, SharedState>) -> Result<(), String> {
+    // Reset brightness before exit so the desktop is not left dimmed after shutdown.
     let shared = state.inner().clone();
     state::reset_dimming_before_exit(&shared).await;
     window.app_handle().exit(0);
