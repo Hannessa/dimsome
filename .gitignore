@@ -33,3 +33,6 @@ Thumbs.db
 
 # Local Tauri CLI metadata
 .tauri/
+
+# Windows .bat files
+*.bat
