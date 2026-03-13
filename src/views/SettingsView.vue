@@ -149,7 +149,16 @@ function queueAutosave() {
   void flushAutosaveQueue();
 }
 
-// Serialize saves so startup registration and settings persistence stay in sync.
+// Only touch startup registration when the requested toggle differs from the applied state.
+function shouldUpdateStartupRegistration(startupEnabled: boolean) {
+  if (!startupState.value) {
+    return true;
+  }
+
+  return startupState.value.isEnabled !== startupEnabled;
+}
+
+// Serialize saves so startup registration changes finish before settings persistence.
 async function flushAutosaveQueue() {
   if (isSaving.value || !settings.value) {
     return;
@@ -162,10 +171,12 @@ async function flushAutosaveQueue() {
       saveQueued.value = false;
       const snapshot = cloneSettings(settings.value);
 
-      // Apply startup registration first because Windows may reject the requested value.
-      const startup = await setStartupEnabled(snapshot.startupEnabled);
-      startupState.value = startup;
-      snapshot.startupEnabled = startup.isEnabled;
+      // Skip registry writes when unrelated edits keep the same startup preference.
+      if (shouldUpdateStartupRegistration(snapshot.startupEnabled)) {
+        const startup = await setStartupEnabled(snapshot.startupEnabled);
+        startupState.value = startup;
+        snapshot.startupEnabled = startup.isEnabled;
+      }
 
       // Persist the normalized settings and then replace the form with the saved copy.
       const saved = await saveSettings(snapshot);

@@ -1,9 +1,32 @@
 #[cfg(target_os = "windows")]
-pub fn get_startup_state() -> crate::models::StartupRegistrationState {
-    use std::process::Command;
+fn startup_state_from_enabled(enabled: bool) -> crate::models::StartupRegistrationState {
+    crate::models::StartupRegistrationState {
+        is_enabled: enabled,
+        can_change: true,
+        status_text: if enabled {
+            "Dimsome launches when you sign in.".to_string()
+        } else {
+            "Startup is off.".to_string()
+        },
+    }
+}
 
+#[cfg(target_os = "windows")]
+fn reg_command() -> std::process::Command {
+    use std::os::windows::process::CommandExt;
+
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    let mut command = std::process::Command::new("reg");
+
+    // Keep background registry work from flashing a console window over the desktop.
+    command.creation_flags(CREATE_NO_WINDOW);
+    command
+}
+
+#[cfg(target_os = "windows")]
+pub fn get_startup_state() -> crate::models::StartupRegistrationState {
     // Read the standard Run key so startup behavior matches Windows expectations.
-    let value = Command::new("reg")
+    let value = reg_command()
         .args([
             "query",
             r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run",
@@ -13,16 +36,8 @@ pub fn get_startup_state() -> crate::models::StartupRegistrationState {
         .output();
 
     match value {
-        Ok(output) if output.status.success() => crate::models::StartupRegistrationState {
-            is_enabled: true,
-            can_change: true,
-            status_text: "Dimsome launches when you sign in.".to_string(),
-        },
-        _ => crate::models::StartupRegistrationState {
-            is_enabled: false,
-            can_change: true,
-            status_text: "Startup is off.".to_string(),
-        },
+        Ok(output) if output.status.success() => startup_state_from_enabled(true),
+        _ => startup_state_from_enabled(false),
     }
 }
 
@@ -31,11 +46,9 @@ pub fn set_startup_enabled(
     enabled: bool,
     executable_path: &str,
 ) -> Result<crate::models::StartupRegistrationState, String> {
-    use std::process::Command;
-
     // Add or remove the Run entry instead of keeping a separate startup manifest.
     let status = if enabled {
-        Command::new("reg")
+        reg_command()
             .args([
                 "add",
                 r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run",
@@ -49,7 +62,7 @@ pub fn set_startup_enabled(
             ])
             .status()
     } else {
-        Command::new("reg")
+        reg_command()
             .args([
                 "delete",
                 r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run",
@@ -65,7 +78,8 @@ pub fn set_startup_enabled(
         return Err("Failed to update startup registration.".into());
     }
 
-    Ok(get_startup_state())
+    // Return the requested state directly so one toggle only launches one helper process.
+    Ok(startup_state_from_enabled(enabled))
 }
 
 #[cfg(not(target_os = "windows"))]
