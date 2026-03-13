@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import Button from "primevue/button";
 import DatePicker from "primevue/datepicker";
 import InputNumber from "primevue/inputnumber";
@@ -13,7 +13,6 @@ import {
   getEffectiveState,
   getSettings,
   getStartupState,
-  pauseSchedule,
   resumeSchedule,
   saveSettings,
   setStartupEnabled
@@ -25,11 +24,14 @@ import type { AppSettings, AppearanceMode, EffectiveDimState, StartupRegistratio
 const settings = ref<AppSettings | null>(null);
 const currentState = ref<EffectiveDimState | null>(null);
 const startupState = ref<StartupRegistrationState | null>(null);
-const statusMessage = ref("");
 const sliderBrightness = ref(100);
 const selectedPanel = ref<"schedule" | "settings">("schedule");
 const isApplyingSliderBrightness = ref(false);
 const pendingSliderBrightness = ref<number | null>(null);
+const saveQueued = ref(false);
+const isSaving = ref(false);
+const skipAutosave = ref(true);
+const lastSavedSnapshot = ref<string | null>(null);
 const appearanceModeOptions: Array<{ label: string; value: "system" | AppearanceMode }> = [
   { label: "Follow system", value: "system" },
   { label: "Light", value: "light" },
@@ -39,7 +41,6 @@ const panelOptions: Array<{ label: string; value: "schedule" | "settings" }> = [
   { label: "Schedule", value: "schedule" },
   { label: "Settings", value: "settings" }
 ];
-
 
 const cardClass = "glass-card rounded-[24px] p-5";
 const sectionLabelClass = "text-[0.9rem] uppercase tracking-[0.04em] text-[var(--muted)]";
@@ -62,7 +63,7 @@ const selectedAppearanceMode = computed({
 });
 
 // Disable right-click
-document.addEventListener('contextmenu', event => event.preventDefault());
+document.addEventListener("contextmenu", (event) => event.preventDefault());
 
 function toBrightnessPercent(dimPercent: number) {
   return 100 - dimPercent;
@@ -82,6 +83,68 @@ function ensureSettings() {
   }
 
   return settings.value;
+}
+
+function cloneSettings(model: AppSettings): AppSettings {
+  return JSON.parse(JSON.stringify(model)) as AppSettings;
+}
+
+function serializeSettings(model: AppSettings) {
+  return JSON.stringify(model);
+}
+
+function serializeAutosaveSettings(model: AppSettings) {
+  return JSON.stringify({
+    startupEnabled: model.startupEnabled,
+    scheduleEnabled: model.scheduleEnabled,
+    dimStepPercent: model.dimStepPercent,
+    appearanceMode: model.appearanceMode ?? null,
+    schedulePoints: model.schedulePoints
+  });
+}
+
+function queueAutosave() {
+  if (skipAutosave.value || !settings.value) {
+    return;
+  }
+
+  saveQueued.value = true;
+  void flushAutosaveQueue();
+}
+
+async function flushAutosaveQueue() {
+  if (isSaving.value || !settings.value) {
+    return;
+  }
+
+  isSaving.value = true;
+
+  try {
+    while (saveQueued.value && settings.value) {
+      saveQueued.value = false;
+      const snapshot = cloneSettings(settings.value);
+
+      const startup = await setStartupEnabled(snapshot.startupEnabled);
+      startupState.value = startup;
+      snapshot.startupEnabled = startup.isEnabled;
+
+      const saved = await saveSettings(snapshot);
+      lastSavedSnapshot.value = serializeSettings(saved);
+
+      skipAutosave.value = true;
+      settings.value = saved;
+      syncAppearanceMode(saved.appearanceMode);
+      skipAutosave.value = false;
+
+      if (settings.value && serializeSettings(settings.value) !== lastSavedSnapshot.value) {
+        saveQueued.value = true;
+      }
+    }
+  } catch (error) {
+    console.error("Failed to auto-save settings.", error);
+  } finally {
+    isSaving.value = false;
+  }
 }
 
 function addSchedulePoint() {
@@ -119,6 +182,9 @@ function updateScheduleTime(point: AppSettings["schedulePoints"][number], value:
   point.timeOfDay = `${hour}:${minute}:00`;
 }
 
+function saveHotkeys() {
+  queueAutosave();
+}
 
 async function applyBrightnessFromSlider(event: { value: number | number[] }) {
   const nextBrightness = Array.isArray(event.value) ? event.value[0] : event.value;
@@ -147,19 +213,6 @@ async function applyBrightnessWhileDragging(nextBrightness: number) {
   }
 }
 
-async function save() {
-  const model = ensureSettings();
-  statusMessage.value = "";
-
-  const startup = await setStartupEnabled(model.startupEnabled);
-  startupState.value = startup;
-  model.startupEnabled = startup.isEnabled;
-
-  settings.value = await saveSettings(model);
-  syncAppearanceMode(settings.value.appearanceMode);
-  statusMessage.value = "Settings saved.";
-}
-
 async function initialize() {
   const [loadedSettings, loadedState, loadedStartupState] = await Promise.all([
     getSettings(),
@@ -170,8 +223,10 @@ async function initialize() {
   settings.value = loadedSettings;
   currentState.value = loadedState;
   startupState.value = loadedStartupState;
+  lastSavedSnapshot.value = serializeSettings(loadedSettings);
   syncAppearanceMode(loadedSettings.appearanceMode);
   syncSliderToState(loadedState);
+  skipAutosave.value = false;
 }
 
 onMounted(async () => {
@@ -184,13 +239,27 @@ onStateChanged((payload) => {
 });
 
 onSettingsSaved((payload) => {
+  lastSavedSnapshot.value = serializeSettings(payload);
+  skipAutosave.value = true;
   settings.value = payload;
   syncAppearanceMode(payload.appearanceMode);
+  skipAutosave.value = false;
 });
 
 onStartupStateChanged((payload) => {
   startupState.value = payload;
 });
+
+watch(
+  () => (settings.value ? serializeAutosaveSettings(settings.value) : null),
+  (nextSnapshot, previousSnapshot) => {
+    if (!nextSnapshot || nextSnapshot === previousSnapshot) {
+      return;
+    }
+
+    queueAutosave();
+  }
+);
 </script>
 
 <template>
@@ -217,7 +286,7 @@ onStartupStateChanged((payload) => {
           @slideend="applyBrightnessFromSlider"
         />
       </div>
-      <div class="inline-flex items-center justify-center gap-2.5 text-base text-[var(--muted)]">
+      <!--<div class="inline-flex items-center justify-center gap-2.5 text-base text-[var(--muted)]">
         <span>{{ !settings.scheduleEnabled ? "Schedule disabled" : ( isFollowingSchedule ? "Following schedule" : "Schedule paused" ) }}</span>
         <Button
           v-if="!isFollowingSchedule || !settings.scheduleEnabled"
@@ -228,7 +297,7 @@ onStartupStateChanged((payload) => {
           class="!w-auto min-w-10"
           @click="resumeSchedule"
         />
-      </div>
+      </div>-->
     </section>
 
     <section class="mx-auto mt-[22px] grid w-full max-w-5xl flex-none justify-items-center">
@@ -248,33 +317,55 @@ onStartupStateChanged((payload) => {
     >
       <div :class="[cardClass, 'flex min-h-0 w-full max-w-[980px] flex-col overflow-hidden']">
         <div class="flex flex-wrap items-start justify-between gap-4">
-          <div>
+          <!--<div>
             <div :class="sectionLabelClass">Schedule</div>
             <p class="mt-2 text-[var(--muted)]">
               Each point defines the target brightness level and how many minutes the ramp should take before it lands.
             </p>
-          </div>
-          <label class="flex items-center gap-3 rounded-[16px] border border-[var(--stroke)] px-4 py-3 text-left">
-            <input v-model="settings.scheduleEnabled" type="checkbox" class="h-4 w-4 accent-[var(--accent)]" />
+          </div>-->
+          
+          
+          <label class="flex items-center gap-3 px-4 py-3 text-left">
+            <ToggleSwitch v-model="settings.scheduleEnabled" />
             <span class="text-[0.9rem] font-semibold uppercase tracking-[0.04em] text-[var(--muted)]">Enable schedule</span>
           </label>
+
+          <div v-if="!isFollowingSchedule" class="inline-flex items-center justify-center gap-2.5 text-base text-[var(--muted)] float-right" @click="resumeSchedule">
+            <span>{{ !settings.scheduleEnabled ? "Schedule disabled" : ( isFollowingSchedule ? "Following schedule" : "Schedule paused (click to resume)" ) }}</span>
+           <!--<Button
+              v-if="!isFollowingSchedule || !settings.scheduleEnabled"
+              label="▶"
+              text
+              rounded
+              aria-label="Resume schedule"
+              class="!w-auto min-w-10 w-1 h-1"
+              @click="resumeSchedule"
+            />-->
+          </div>
         </div>
 
-        <div class="mt-[18px] min-h-0 flex-1 overflow-y-auto pr-1">
+        <div class="mt-[18px] min-h-0 flex-1 overflow-auto pr-1">
           <div
             :class="[
-              'grid gap-[18px] pb-1 transition-opacity',
+              'grid gap-2 pb-1 transition-opacity',
               settings.scheduleEnabled ? 'opacity-100' : 'opacity-55'
             ]"
           >
           <div
+            class="grid min-w-[760px] grid-cols-[minmax(0,1fr)_140px_140px_80px_auto] items-center gap-3 px-3 text-[0.82rem] font-semibold uppercase tracking-[0.04em] text-[var(--muted)]"
+          >
+            <span>Time</span>
+            <span>Brightness %</span>
+            <span>Fade duration</span>
+            <span class="text-center">Enabled</span>
+            <span class="text-right">Action</span>
+          </div>
+          <div
             v-for="point in settings.schedulePoints"
             :key="point.id"
-            class="glass-card-strong grid items-end gap-3 rounded-[18px] p-[14px] xl:grid-cols-[minmax(0,1fr)_140px_140px_80px_auto]"
+            class="glass-card-strong grid min-w-[760px] grid-cols-[minmax(0,1fr)_140px_140px_80px_auto] items-center gap-3 rounded-[16px] px-3 py-2.5"
           >
-            
-            <label :class="fieldClass">
-              <span :class="fieldLabelClass">Time</span>
+            <div :class="fieldClass">
               <DatePicker
                 :model-value="scheduleTimeToDate(point.timeOfDay)"
                 time-only
@@ -287,9 +378,8 @@ onStartupStateChanged((payload) => {
                 fluid
                 @update:model-value="updateScheduleTime(point, $event)"
               />
-            </label>
-            <label :class="fieldClass">
-              <span :class="fieldLabelClass">Brightness %</span>
+            </div>
+            <div :class="fieldClass">
               <InputNumber
                 :model-value="toBrightnessPercent(point.targetDimPercent)"
                 @update:model-value="point.targetDimPercent = toDimPercent($event ?? 100)"
@@ -300,35 +390,35 @@ onStartupStateChanged((payload) => {
                 :disabled="!settings.scheduleEnabled"
                 fluid
               />
-            </label>
-            <label :class="fieldClass">
-              <span :class="fieldLabelClass">Fade duration</span>
+            </div>
+            <div :class="fieldClass">
               <InputNumber v-model="point.transitionMinutes" showButtons :min="0" :max="1439" :disabled="!settings.scheduleEnabled" fluid incrementButtonClass="mt-1" decrementButtonClass="mb-1" />
-            </label>
-            <label :class="fieldClass">
-              <span :class="fieldLabelClass" class="text-center mb-4">Enabled</span>
-              <div class="text-center"><ToggleSwitch class="mb-3" v-model="point.enabled" :disabled="!settings.scheduleEnabled" /></div>
-            </label>
+            </div>
+            <div class="flex justify-center">
+              <ToggleSwitch v-model="point.enabled" :disabled="!settings.scheduleEnabled" />
+            </div>
             <Button
               label="Remove"
               severity="secondary"
               variant="outlined"
-              class="max-xl:w-full"
+              class="w-full min-w-[96px]"
               :disabled="!settings.scheduleEnabled"
               @click="removeSchedulePoint(point.id)"
             />
           </div>
           </div>
+
+          <Button
+            label="Add Schedule Point"
+            severity="secondary"
+            variant="outlined"
+            class="mt-[18px] mb-9 sm:w-auto"
+            :disabled="!settings.scheduleEnabled"
+            @click="addSchedulePoint"
+          />
         </div>
 
-        <Button
-          label="Add Schedule Point"
-          severity="secondary"
-          variant="outlined"
-          class="mt-[18px] sm:w-auto"
-          :disabled="!settings.scheduleEnabled"
-          @click="addSchedulePoint"
-        />
+        
       </div>
     </section>
 
@@ -374,30 +464,16 @@ onStartupStateChanged((payload) => {
         <div :class="sectionLabelClass">Hotkeys</div>
         <label :class="[fieldClass, 'mt-4']">
           <span :class="fieldLabelClass">Decrease brightness key</span>
-          <InputText v-model="settings.manualHotkeys.dimMore.key" fluid />
+          <InputText v-model="settings.manualHotkeys.dimMore.key" fluid @blur="saveHotkeys" />
         </label>
         <label :class="[fieldClass, 'mt-4']">
           <span :class="fieldLabelClass">Increase brightness key</span>
-          <InputText v-model="settings.manualHotkeys.dimLess.key" fluid />
+          <InputText v-model="settings.manualHotkeys.dimLess.key" fluid @blur="saveHotkeys" />
         </label>
         <p class="mt-3 text-[var(--muted)]">
           Modifier handling is preserved in the backend JSON contract; this first pass exposes the key names directly.
         </p>
       </div>
-
-      <div :class="cardClass">
-        <div :class="sectionLabelClass">Actions</div>
-        <div class="mt-4 grid gap-3 md:grid-cols-3">
-          <Button label="Save Settings" @click="save" />
-          <Button label="Pause Schedule" severity="secondary" variant="outlined" @click="pauseSchedule" />
-          <Button label="Resume Schedule" severity="secondary" variant="outlined" @click="resumeSchedule" />
-        </div>
-        <p class="mt-3 text-[var(--muted)]">{{ statusMessage }}</p>
-      </div>
     </section>
   </main>
 </template>
-
-
-
-
