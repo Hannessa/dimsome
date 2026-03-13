@@ -293,6 +293,8 @@ onStartupStateChanged((payload) => {
               <InputNumber
                 :model-value="toBrightnessPercent(point.targetDimPercent)"
                 @update:model-value="point.targetDimPercent = toDimPercent($event ?? 100)"
+                incrementButtonClass="mt-1" decrementButtonClass="mb-1"
+                showButtons
                 :min="5"
                 :max="100"
                 :disabled="!settings.scheduleEnabled"
@@ -301,7 +303,7 @@ onStartupStateChanged((payload) => {
             </label>
             <label :class="fieldClass">
               <span :class="fieldLabelClass">Fade duration</span>
-              <InputNumber v-model="point.transitionMinutes" :min="0" :max="1439" :disabled="!settings.scheduleEnabled" fluid />
+              <InputNumber v-model="point.transitionMinutes" showButtons :min="0" :max="1439" :disabled="!settings.scheduleEnabled" fluid incrementButtonClass="mt-1" decrementButtonClass="mb-1" />
             </label>
             <label :class="fieldClass">
               <span :class="fieldLabelClass" class="text-center mb-4">Enabled</span>
