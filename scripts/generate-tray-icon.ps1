@@ -100,23 +100,9 @@ function New-AppIconBitmap {
         -OuterRayScale 0.38 `
         -RayThicknessScale 0.072
 
-    # Add one soft highlight so the larger app icon does not feel too flat.
-    $highlightRadius = $Size * 0.105
-    $highlightBrush = [System.Drawing.SolidBrush]::new((New-ArgbColor 76 255 244 250))
-    $graphics.FillEllipse(
-        $highlightBrush,
-        [System.Drawing.RectangleF]::new(
-            ($Size * 0.42) - $highlightRadius,
-            ($Size * 0.42) - $highlightRadius,
-            $highlightRadius * 2,
-            $highlightRadius * 2
-        )
-    )
-
     # Dispose the drawing resources before returning the bitmap itself.
     $glowBrush.Dispose()
     $glowPath.Dispose()
-    $highlightBrush.Dispose()
     $graphics.Dispose()
 
     return $bitmap
@@ -273,3 +259,5 @@ finally {
         }
     }
 }
+
+
