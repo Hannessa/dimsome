@@ -1,6 +1,6 @@
 use std::{
     collections::HashMap,
-    sync::mpsc::{self, RecvTimeoutError, Sender},
+    sync::mpsc::{self, RecvTimeoutError, Sender, SyncSender},
     thread,
     time::Duration,
 };
@@ -38,6 +38,10 @@ enum DimmingCommand {
         method: DimmingMethod,
         dim_percent: f64,
     },
+    ResetAndAck {
+        method: DimmingMethod,
+        reply: SyncSender<()>,
+    },
     Shutdown,
 }
 
@@ -55,6 +59,17 @@ impl DimmingManager {
 
     pub fn sync(&self, method: DimmingMethod, dim_percent: f64) {
         let _ = self.sender.send(DimmingCommand::Sync { method, dim_percent });
+    }
+
+    pub fn reset_to_full_brightness(&self, method: DimmingMethod) {
+        let (reply, receiver) = mpsc::sync_channel(1);
+        if self
+            .sender
+            .send(DimmingCommand::ResetAndAck { method, reply })
+            .is_ok()
+        {
+            let _ = receiver.recv_timeout(Duration::from_secs(2));
+        }
     }
 }
 
@@ -329,6 +344,30 @@ fn dimming_thread(receiver: mpsc::Receiver<DimmingCommand>) {
                     last_applied_dim_percent = Some(dim_percent);
                     needs_apply = had_failures;
                 }
+            }
+            Ok(DimmingCommand::ResetAndAck { method, reply }) => {
+                let dim_percent = 0.0;
+                let monitors = enumerate_monitors();
+
+                if active_method.as_ref() != Some(&method) {
+                    deactivate_active_method(active_method.as_ref(), &mut overlay_engine, &mut gamma_engine);
+                    active_method = Some(method.clone());
+                }
+
+                match method {
+                    DimmingMethod::Overlay => {
+                        let _ = overlay_engine.sync_monitors(&monitors);
+                        overlay_engine.apply(dim_percent);
+                    }
+                    DimmingMethod::Gamma => {
+                        let _ = gamma_engine.sync_monitors(&monitors);
+                        let _ = gamma_engine.apply(dim_percent);
+                    }
+                }
+
+                last_applied_dim_percent = Some(dim_percent);
+                needs_apply = false;
+                let _ = reply.send(());
             }
             Ok(DimmingCommand::Shutdown) | Err(RecvTimeoutError::Disconnected) => break,
             Err(RecvTimeoutError::Timeout) => {}

@@ -77,6 +77,13 @@ pub async fn refresh_state(shared: &SharedState, app: Option<&AppHandle>) -> Eff
     next
 }
 
+pub async fn reset_dimming_before_exit(shared: &SharedState) {
+    let state = shared.read().await;
+    state
+        .dimming_manager
+        .reset_to_full_brightness(state.settings.dimming_method.clone());
+}
+
 pub fn start_loop(shared: SharedState, app: AppHandle) {
     tauri::async_runtime::spawn(async move {
         loop {

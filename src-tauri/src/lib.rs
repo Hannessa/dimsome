@@ -16,7 +16,7 @@ use tauri::{
 
 use crate::{
     hotkeys::{HotkeyAction, HotkeyManager},
-    state::{initialize_state, refresh_state, start_loop},
+    state::{initialize_state, refresh_state, reset_dimming_before_exit, start_loop},
 };
 
 const SETTINGS_WINDOW_WIDTH: f64 = 896.0;
@@ -129,7 +129,15 @@ pub fn run() {
                             }
                         });
                     }
-                    "quit" => app.exit(0),
+                    "quit" => {
+                        let app_handle = app.clone();
+                        tauri::async_runtime::spawn(async move {
+                            if let Some(shared) = app_handle.try_state::<crate::state::SharedState>() {
+                                reset_dimming_before_exit(shared.inner()).await;
+                            }
+                            app_handle.exit(0);
+                        });
+                    }
                     _ => {}
                 })
                 .on_tray_icon_event(|tray, event| match event {
@@ -163,4 +171,3 @@ pub fn run() {
         .run(tauri::generate_context!())
         .expect("error while running Dimsome Tauri");
 }
-

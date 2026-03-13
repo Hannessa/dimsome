@@ -68,7 +68,9 @@ pub async fn set_startup_enabled(
 }
 
 #[tauri::command]
-pub async fn exit_app(window: Window) -> Result<(), String> {
+pub async fn exit_app(window: Window, state: State<'_, SharedState>) -> Result<(), String> {
+    let shared = state.inner().clone();
+    state::reset_dimming_before_exit(&shared).await;
     window.app_handle().exit(0);
     Ok(())
 }
