@@ -43,7 +43,9 @@ pub(crate) fn ensure_settings_window(app: &tauri::AppHandle) -> tauri::Result<We
     )
     .title("Dimsome")
     .inner_size(SETTINGS_WINDOW_WIDTH, SETTINGS_WINDOW_HEIGHT)
-    .resizable(true)
+    .resizable(false)
+    .minimizable(false)
+    .maximizable(false)
     .visible(false)
     .build()?;
     configure_settings_window(&window);
