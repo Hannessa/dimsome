@@ -6,11 +6,20 @@ pub const CURRENT_VERSION: i32 = 1;
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
+pub enum AppearanceMode {
+    Light,
+    Dark,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct AppSettings {
     pub version: i32,
     pub startup_enabled: bool,
     pub schedule_enabled: bool,
     pub dim_step_percent: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub appearance_mode: Option<AppearanceMode>,
     pub manual_hotkeys: ManualHotkeys,
     pub schedule_points: Vec<SchedulePoint>,
 }
@@ -22,6 +31,7 @@ impl Default for AppSettings {
             startup_enabled: true,
             schedule_enabled: true,
             dim_step_percent: 5.0,
+            appearance_mode: None,
             manual_hotkeys: ManualHotkeys::default(),
             schedule_points: vec![
                 SchedulePoint {

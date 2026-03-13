@@ -1,5 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
+import Button from "primevue/button";
+import InputNumber from "primevue/inputnumber";
+import InputText from "primevue/inputtext";
+import Select from "primevue/select";
+import Slider from "primevue/slider";
+import ToggleSwitch from "primevue/toggleswitch";
 import {
   getEffectiveState,
   getSettings,
@@ -10,14 +16,31 @@ import {
   setStartupEnabled
 } from "../lib/api";
 import { onSettingsSaved, onStartupStateChanged, onStateChanged } from "../lib/events";
-import type { AppSettings, EffectiveDimState, StartupRegistrationState } from "../types/app";
+import { syncAppearanceMode } from "../lib/theme";
+import type { AppSettings, AppearanceMode, EffectiveDimState, StartupRegistrationState } from "../types/app";
 
 const settings = ref<AppSettings | null>(null);
 const currentState = ref<EffectiveDimState | null>(null);
 const startupState = ref<StartupRegistrationState | null>(null);
 const statusMessage = ref("");
+const appearanceModeOptions: Array<{ label: string; value: "system" | AppearanceMode }> = [
+  { label: "Follow system", value: "system" },
+  { label: "Light", value: "light" },
+  { label: "Dark", value: "dark" }
+];
 
 const dimSummary = computed(() => `${settings.value?.dimStepPercent ?? 0}% per hotkey press`);
+const selectedAppearanceMode = computed({
+  get: () => settings.value?.appearanceMode ?? "system",
+  set: (value: "system" | AppearanceMode) => {
+    if (!settings.value) {
+      return;
+    }
+
+    settings.value.appearanceMode = value === "system" ? undefined : value;
+    syncAppearanceMode(settings.value.appearanceMode);
+  }
+});
 const currentModeText = computed(() => {
   const mode = currentState.value?.mode ?? "Auto";
   if (mode === "Manual") return "Manual override";
@@ -60,6 +83,7 @@ async function save() {
   model.startupEnabled = startup.isEnabled;
 
   settings.value = await saveSettings(model);
+  syncAppearanceMode(settings.value.appearanceMode);
   statusMessage.value = "Settings saved.";
 }
 
@@ -73,6 +97,7 @@ async function initialize() {
   settings.value = loadedSettings;
   currentState.value = loadedState;
   startupState.value = loadedStartupState;
+  syncAppearanceMode(loadedSettings.appearanceMode);
 }
 
 onMounted(async () => {
@@ -85,6 +110,7 @@ onStateChanged((payload) => {
 
 onSettingsSaved((payload) => {
   settings.value = payload;
+  syncAppearanceMode(payload.appearanceMode);
 });
 
 onStartupStateChanged((payload) => {
@@ -115,7 +141,7 @@ onStartupStateChanged((payload) => {
           <div class="schedule-item" v-for="point in settings.schedulePoints" :key="point.id">
             <label class="field checkbox-field">
               <span>Enabled</span>
-              <input type="checkbox" v-model="point.enabled" />
+              <ToggleSwitch v-model="point.enabled" />
             </label>
             <label class="field">
               <span>Time</span>
@@ -123,30 +149,44 @@ onStartupStateChanged((payload) => {
             </label>
             <label class="field">
               <span>Dim %</span>
-              <input type="number" min="0" max="95" v-model.number="point.targetDimPercent" />
+              <InputNumber v-model="point.targetDimPercent" :min="0" :max="95" fluid />
             </label>
             <label class="field">
               <span>Fade min</span>
-              <input type="number" min="0" max="1439" v-model.number="point.transitionMinutes" />
+              <InputNumber v-model="point.transitionMinutes" :min="0" :max="1439" fluid />
             </label>
-            <button class="button secondary" @click="removeSchedulePoint(point.id)">Remove</button>
+            <Button label="Remove" severity="secondary" variant="outlined" @click="removeSchedulePoint(point.id)" />
           </div>
         </div>
 
-        <button class="button secondary" @click="addSchedulePoint">Add Schedule Point</button>
+        <Button label="Add Schedule Point" severity="secondary" variant="outlined" @click="addSchedulePoint" />
       </div>
 
       <div class="side-column">
         <div class="card">
+          <div class="section-label">Appearance</div>
+          <label class="field">
+            <span>Color scheme</span>
+            <Select
+              v-model="selectedAppearanceMode"
+              :options="appearanceModeOptions"
+              option-label="label"
+              option-value="value"
+              fluid
+            />
+          </label>
+          <p class="muted">If you leave this on Follow system, PrimeVue tracks the operating system color scheme.</p>
+        </div>
+
+        <div class="card">
           <div class="section-label">Automation</div>
           <label class="field checkbox-field">
             <span>Enable automatic schedule</span>
-            <input type="checkbox" v-model="settings.scheduleEnabled" />
+            <ToggleSwitch v-model="settings.scheduleEnabled" />
           </label>
           <label class="field checkbox-field">
             <span>Launch at sign-in</span>
-            <input
-              type="checkbox"
+            <ToggleSwitch
               v-model="settings.startupEnabled"
               :disabled="startupState ? !startupState.canChange : false"
             />
@@ -154,7 +194,7 @@ onStartupStateChanged((payload) => {
           <p class="muted">{{ startupState?.statusText ?? "Loading startup state..." }}</p>
           <label class="field">
             <span>Hotkey step size</span>
-            <input type="range" min="1" max="25" step="1" v-model.number="settings.dimStepPercent" />
+            <Slider v-model="settings.dimStepPercent" :min="1" :max="25" :step="1" />
           </label>
           <p class="muted">{{ dimSummary }}</p>
         </div>
@@ -163,21 +203,21 @@ onStartupStateChanged((payload) => {
           <div class="section-label">Hotkeys</div>
           <label class="field">
             <span>Dim more key</span>
-            <input type="text" v-model="settings.manualHotkeys.dimMore.key" />
+            <InputText v-model="settings.manualHotkeys.dimMore.key" fluid />
           </label>
           <label class="field">
             <span>Dim less key</span>
-            <input type="text" v-model="settings.manualHotkeys.dimLess.key" />
+            <InputText v-model="settings.manualHotkeys.dimLess.key" fluid />
           </label>
           <p class="muted">Modifier handling is preserved in the backend JSON contract; this first pass exposes the key names directly.</p>
         </div>
 
         <div class="card">
           <div class="section-label">Actions</div>
-          <div class="action-row">
-            <button class="button" @click="save">Save Settings</button>
-            <button class="button secondary" @click="pauseSchedule">Pause Schedule</button>
-            <button class="button secondary" @click="resumeSchedule">Resume Schedule</button>
+          <div class="action-row action-row-buttons">
+            <Button label="Save Settings" @click="save" />
+            <Button label="Pause Schedule" severity="secondary" variant="outlined" @click="pauseSchedule" />
+            <Button label="Resume Schedule" severity="secondary" variant="outlined" @click="resumeSchedule" />
           </div>
           <p class="status">{{ statusMessage }}</p>
         </div>

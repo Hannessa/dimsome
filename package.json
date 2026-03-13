@@ -11,7 +11,9 @@
     "tauri:build": "tauri build && node scripts/prepare-release.mjs"
   },
   "dependencies": {
+    "@primeuix/themes": "^2.0.3",
     "@tauri-apps/api": "^2",
+    "primevue": "^4.5.4",
     "vue": "^3.5.13"
   },
   "devDependencies": {

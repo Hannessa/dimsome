@@ -17,11 +17,14 @@ export interface SchedulePoint {
   enabled: boolean;
 }
 
+export type AppearanceMode = "light" | "dark";
+
 export interface AppSettings {
   version: number;
   startupEnabled: boolean;
   scheduleEnabled: boolean;
   dimStepPercent: number;
+  appearanceMode?: AppearanceMode;
   manualHotkeys: ManualHotkeys;
   schedulePoints: SchedulePoint[];
 }
