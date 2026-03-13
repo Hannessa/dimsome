@@ -36,3 +36,6 @@ Thumbs.db
 
 # Windows .bat files
 *.bat
+
+# VS Code workspaces
+*.code-workspace
