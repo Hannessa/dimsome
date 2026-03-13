@@ -121,6 +121,8 @@ pub fn run() {
             let _tray = TrayIconBuilder::new()
                 .icon(tray_icon)
                 .menu(&menu)
+                // Keep the native tray menu on right click only so left click can open Settings.
+                .show_menu_on_left_click(false)
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "open_settings" => {
                         if let Err(error) = open_settings_window(app) {
