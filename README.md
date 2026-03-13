@@ -87,3 +87,9 @@ Default behavior includes:
 - This project is currently focused on Windows behavior.
 - Tauri bundles are configured through [`src-tauri/tauri.conf.json`](./src-tauri/tauri.conf.json).
 - Rust dependencies are locked in [`src-tauri/Cargo.lock`](./src-tauri/Cargo.lock), and Node dependencies are locked in [`package-lock.json`](./package-lock.json).
+
+
+## License
+
+Dimsome is open source under the [MIT License](./LICENSE).
+

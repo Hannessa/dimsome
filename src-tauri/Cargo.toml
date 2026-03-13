@@ -1,8 +1,9 @@
 [package]
 name = "dimsome_tauri"
-version = "0.1.0"
+version = "1.0.0"
 description = "Dimsome Tauri desktop application"
 authors = ["Dimsome"]
+license = "MIT"
 edition = "2021"
 
 [lib]
@@ -27,3 +28,4 @@ windows = { version = "0.58", features = [
   "Win32_UI_Input_KeyboardAndMouse",
   "Win32_UI_WindowsAndMessaging"
 ] }
+
