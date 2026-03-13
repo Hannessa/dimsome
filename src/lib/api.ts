@@ -33,10 +33,6 @@ export function setStartupEnabled(enabled: boolean) {
   return invoke<StartupRegistrationState>("set_startup_enabled", { enabled });
 }
 
-export function showSettingsWindow() {
-  return invoke<void>("show_settings_window");
-}
-
 export function exitApp() {
   return invoke<void>("exit_app");
 }

@@ -10,8 +10,7 @@ mod windows;
 use tauri::{
     menu::{MenuBuilder, MenuItemBuilder},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Emitter, Manager, PhysicalPosition, Position, Rect, WebviewUrl, WebviewWindowBuilder,
-    WindowEvent,
+    Emitter, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent,
 };
 
 use crate::{
@@ -19,10 +18,10 @@ use crate::{
     state::{initialize_state, refresh_state, start_loop},
 };
 
-const QUICK_PANEL_WIDTH: f64 = 330.0;
-const QUICK_PANEL_HEIGHT: f64 = 360.0;
+const SETTINGS_WINDOW_WIDTH: f64 = 1280.0;
+const SETTINGS_WINDOW_HEIGHT: f64 = 860.0;
 
-fn configure_settings_window(window: &tauri::WebviewWindow) {
+fn configure_settings_window(window: &WebviewWindow) {
     let settings_window = window.clone();
     window.on_window_event(move |event| {
         if let WindowEvent::CloseRequested { api, .. } = event {
@@ -32,87 +31,30 @@ fn configure_settings_window(window: &tauri::WebviewWindow) {
     });
 }
 
-fn build_quick_panel(app: &tauri::AppHandle) -> tauri::Result<()> {
-    let window = if let Some(window) = app.get_webview_window("quick-panel") {
-        window
-    } else {
-        WebviewWindowBuilder::new(
-            app,
-            "quick-panel",
-            WebviewUrl::App("index.html?window=quick-panel".into()),
-        )
-        .title("Dimsome Quick Panel")
-        .inner_size(QUICK_PANEL_WIDTH, QUICK_PANEL_HEIGHT)
-        .resizable(false)
-        .maximizable(false)
-        .minimizable(false)
-        .decorations(false)
-        .always_on_top(true)
-        .skip_taskbar(true)
-        .visible(false)
-        .build()?
-    };
-
-    let quick_panel = window.clone();
-    window.on_window_event(move |event| match event {
-        WindowEvent::Focused(false) => {
-            let _ = quick_panel.hide();
-        }
-        WindowEvent::CloseRequested { api, .. } => {
-            api.prevent_close();
-            let _ = quick_panel.hide();
-        }
-        _ => {}
-    });
-
-    window.hide()?;
-    Ok(())
-}
-
-fn resolve_anchor_rect(position: PhysicalPosition<f64>, rect: Rect) -> (i32, i32, i32, i32) {
-    let rect_position = rect.position.to_physical::<f64>(1.0);
-    let rect_size = rect.size.to_physical::<f64>(1.0);
-
-    let width = rect_size.width.round().max(1.0) as i32;
-    let height = rect_size.height.round().max(1.0) as i32;
-    let left = if width > 1 {
-        rect_position.x.round() as i32
-    } else {
-        (position.x - 12.0).round() as i32
-    };
-    let top = if height > 1 {
-        rect_position.y.round() as i32
-    } else {
-        (position.y - 12.0).round() as i32
-    };
-
-    (left, top, width, height)
-}
-
-fn show_quick_panel(
-    window: &tauri::WebviewWindow,
-    anchor_left: i32,
-    anchor_top: i32,
-    anchor_width: i32,
-    anchor_height: i32,
-) {
-    if window.is_visible().unwrap_or(false) {
-        let _ = window.hide();
-        return;
+pub(crate) fn ensure_settings_window(app: &tauri::AppHandle) -> tauri::Result<WebviewWindow> {
+    if let Some(window) = app.get_webview_window("settings") {
+        return Ok(window);
     }
 
-    let (x, y) = crate::windows::calculate_quick_panel_position(
-        anchor_left,
-        anchor_top,
-        anchor_width,
-        anchor_height,
-        QUICK_PANEL_WIDTH.round() as i32,
-        QUICK_PANEL_HEIGHT.round() as i32,
-    );
+    let window = WebviewWindowBuilder::new(
+        app,
+        "settings",
+        WebviewUrl::App("index.html?window=settings".into()),
+    )
+    .title("Dimsome")
+    .inner_size(SETTINGS_WINDOW_WIDTH, SETTINGS_WINDOW_HEIGHT)
+    .resizable(true)
+    .visible(false)
+    .build()?;
+    configure_settings_window(&window);
+    Ok(window)
+}
 
-    let _ = window.set_position(Position::Physical(PhysicalPosition::new(x, y)));
-    let _ = window.show();
-    let _ = window.set_focus();
+pub(crate) fn open_settings_window(app: &tauri::AppHandle) -> tauri::Result<()> {
+    let window = ensure_settings_window(app)?;
+    window.show()?;
+    window.set_focus()?;
+    Ok(())
 }
 
 pub fn run() {
@@ -127,17 +69,9 @@ pub fn run() {
             commands::resume_schedule,
             commands::get_startup_state,
             commands::set_startup_enabled,
-            commands::show_settings_window,
             commands::exit_app
         ])
         .setup(|app| {
-            if let Some(settings_window) = app.get_webview_window("settings") {
-                configure_settings_window(&settings_window);
-                settings_window.hide()?;
-            }
-
-            build_quick_panel(app.handle())?;
-
             let shared_for_hotkeys = app.state::<crate::state::SharedState>().inner().clone();
             let shared_for_hotkeys_handler = shared_for_hotkeys.clone();
             let app_handle_for_hotkeys = app.handle().clone();
@@ -170,12 +104,8 @@ pub fn run() {
                 .menu(&menu)
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "open_settings" => {
-                        if let Some(quick_panel) = app.get_webview_window("quick-panel") {
-                            let _ = quick_panel.hide();
-                        }
-                        if let Some(window) = app.get_webview_window("settings") {
-                            let _ = window.show();
-                            let _ = window.set_focus();
+                        if let Err(error) = open_settings_window(app) {
+                            eprintln!("Failed to open settings window: {error}");
                         }
                     }
                     "pause_resume" => {
@@ -198,25 +128,14 @@ pub fn run() {
                     TrayIconEvent::Click {
                         button: MouseButton::Left,
                         button_state: MouseButtonState::Up,
-                        position,
-                        rect,
                         ..
-                    } => {
-                        if let Some(window) = tray.app_handle().get_webview_window("quick-panel") {
-                            let (left, top, width, height) = resolve_anchor_rect(position, rect);
-                            show_quick_panel(&window, left, top, width, height);
-                        }
                     }
-                    TrayIconEvent::DoubleClick {
+                    | TrayIconEvent::DoubleClick {
                         button: MouseButton::Left,
                         ..
                     } => {
-                        if let Some(quick_panel) = tray.app_handle().get_webview_window("quick-panel") {
-                            let _ = quick_panel.hide();
-                        }
-                        if let Some(window) = tray.app_handle().get_webview_window("settings") {
-                            let _ = window.show();
-                            let _ = window.set_focus();
+                        if let Err(error) = open_settings_window(tray.app_handle()) {
+                            eprintln!("Failed to open settings window: {error}");
                         }
                     }
                     _ => {}
@@ -236,5 +155,3 @@ pub fn run() {
         .run(tauri::generate_context!())
         .expect("error while running Dimsome Tauri");
 }
-
-

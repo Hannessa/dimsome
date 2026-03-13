@@ -2,7 +2,7 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Default desktop capability for Dimsome.",
-  "windows": ["settings", "quick-panel"],
+  "windows": ["settings"],
   "permissions": [
     "core:default"
   ]

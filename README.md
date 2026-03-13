@@ -1,6 +1,6 @@
 # Dimsome
 
-Dimsome is a Windows tray app for software-based screen dimming. It applies dimming overlays, allowing you to get a darker screen than your monitor normally allows, and lets you control them through a quick panel, a settings window, scheduled transitions, and global hotkeys.
+Dimsome is a Windows tray app for software-based screen dimming. It applies dimming overlays, allowing you to get a darker screen than your monitor normally allows, and lets you control them through a settings window, scheduled transitions, and global hotkeys.
 
 ## What it does
 
@@ -20,7 +20,7 @@ Dimsome is a Windows tray app for software-based screen dimming. It applies dimm
 
 ## Project structure
 
-- `src/`: Vue UI for the settings window and quick panel
+- `src/`: Vue UI for the settings window
 - `src-tauri/src/`: native app runtime, tray behavior, settings, schedule logic, hotkeys, and startup integration
 - `src-tauri/icons/`: application icons used for bundling
 - `src-tauri/gen/`: generated Tauri schema files

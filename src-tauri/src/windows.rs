@@ -11,7 +11,7 @@ use windows::{
         Foundation::{BOOL, COLORREF, HWND, LPARAM, LRESULT, RECT, WPARAM},
         Graphics::Gdi::{
             EnumDisplayMonitors, GetMonitorInfoW, GetStockObject, HBRUSH, HDC, HMONITOR,
-            MONITORINFOEXW, MonitorFromRect, BLACK_BRUSH, MONITOR_DEFAULTTONEAREST,
+            MONITORINFOEXW, BLACK_BRUSH,
         },
         System::LibraryLoader::GetModuleHandleW,
         UI::WindowsAndMessaging::{
@@ -171,75 +171,6 @@ fn overlay_thread(receiver: mpsc::Receiver<OverlayCommand>) {
     }
 }
 
-pub fn calculate_quick_panel_position(
-    anchor_left: i32,
-    anchor_top: i32,
-    anchor_width: i32,
-    anchor_height: i32,
-    panel_width: i32,
-    panel_height: i32,
-) -> (i32, i32) {
-    const SPACING: i32 = 12;
-
-    let anchor_rect = RECT {
-        left: anchor_left,
-        top: anchor_top,
-        right: anchor_left + anchor_width.max(1),
-        bottom: anchor_top + anchor_height.max(1),
-    };
-
-    unsafe {
-        let monitor = MonitorFromRect(&anchor_rect, MONITOR_DEFAULTTONEAREST);
-        let mut info = MONITORINFOEXW::default();
-        info.monitorInfo.cbSize = std::mem::size_of::<MONITORINFOEXW>() as u32;
-
-        if GetMonitorInfoW(monitor, &mut info as *mut _ as *mut _).as_bool() {
-            let monitor_rect = info.monitorInfo.rcMonitor;
-            let work_area = info.monitorInfo.rcWork;
-
-            let anchor_right = anchor_rect.right;
-            let anchor_bottom = anchor_rect.bottom;
-            let taskbar_bottom = work_area.bottom < monitor_rect.bottom;
-            let taskbar_top = work_area.top > monitor_rect.top;
-            let taskbar_left = work_area.left > monitor_rect.left;
-            let centered_x = ((anchor_left + anchor_right) / 2) - (panel_width / 2);
-
-            let min_x = work_area.left + SPACING;
-            let max_x = work_area.right - panel_width - SPACING;
-            let min_y = work_area.top + SPACING;
-            let max_y = work_area.bottom - panel_height;
-
-            let mut x = clamp_to_work_area(centered_x, min_x, max_x);
-            let mut y = if taskbar_bottom {
-                max_y
-            } else if taskbar_top {
-                anchor_bottom + SPACING
-            } else {
-                anchor_top
-            };
-
-            if taskbar_left {
-                x = anchor_right + SPACING;
-                y = clamp_to_work_area(anchor_top, min_y, work_area.bottom - panel_height - SPACING);
-            }
-
-            if !taskbar_bottom && !taskbar_top && !taskbar_left {
-                x = anchor_left - panel_width - SPACING;
-                y = clamp_to_work_area(anchor_top, min_y, work_area.bottom - panel_height - SPACING);
-            }
-
-            x = clamp_to_work_area(x, min_x, max_x);
-            y = clamp_to_work_area(y, min_y, max_y);
-            return (x, y);
-        }
-    }
-
-    (
-        anchor_left.max(0),
-        (anchor_top - panel_height - SPACING).max(0),
-    )
-}
-
 fn pump_messages() {
     unsafe {
         let mut msg = MSG::default();
@@ -326,15 +257,3 @@ fn enumerate_monitors() -> Vec<MonitorInfo> {
 fn widestr(value: &str) -> Vec<u16> {
     value.encode_utf16().chain(std::iter::once(0)).collect()
 }
-
-fn clamp_to_work_area(value: i32, min: i32, max: i32) -> i32 {
-    if max < min {
-        min
-    } else {
-        value.clamp(min, max)
-    }
-}
-
-
-
-

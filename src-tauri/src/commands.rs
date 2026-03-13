@@ -68,18 +68,6 @@ pub async fn set_startup_enabled(
 }
 
 #[tauri::command]
-pub async fn show_settings_window(app: AppHandle) -> Result<(), String> {
-    if let Some(window) = app.get_webview_window("quick-panel") {
-        let _ = window.hide();
-    }
-
-    let window = app.get_webview_window("settings").ok_or("Settings window was not found.")?;
-    window.show().map_err(|error| error.to_string())?;
-    window.set_focus().map_err(|error| error.to_string())?;
-    Ok(())
-}
-
-#[tauri::command]
 pub async fn exit_app(window: Window) -> Result<(), String> {
     window.app_handle().exit(0);
     Ok(())
