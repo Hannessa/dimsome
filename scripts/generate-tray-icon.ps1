@@ -14,6 +14,55 @@ function New-ArgbColor {
     return [System.Drawing.Color]::FromArgb($A, $R, $G, $B)
 }
 
+function Draw-SunGlyph {
+    param(
+        [System.Drawing.Graphics]$Graphics,
+        [float]$Size,
+        [System.Drawing.Color]$CoreColor,
+        [System.Drawing.Color]$RayColor,
+        [float]$CoreScale = 0.34,
+        [float]$InnerRayScale = 0.15,
+        [float]$OuterRayScale = 0.38,
+        [float]$RayThicknessScale = 0.075
+    )
+
+    # Center every shape from one origin so both icons share the same silhouette.
+    $center = $Size / 2
+    $coreRadius = $Size * $CoreScale / 2
+    $innerRayRadius = $Size * $InnerRayScale
+    $outerRayRadius = $Size * $OuterRayScale
+    $rayThickness = [math]::Max(1.5, $Size * $RayThicknessScale)
+
+    $coreBrush = [System.Drawing.SolidBrush]::new($CoreColor)
+    $rayPen = [System.Drawing.Pen]::new($RayColor, $rayThickness)
+    $rayPen.StartCap = [System.Drawing.Drawing2D.LineCap]::Round
+    $rayPen.EndCap = [System.Drawing.Drawing2D.LineCap]::Round
+
+    # Use eight balanced rays so the mark still reads clearly at small sizes.
+    foreach ($rayIndex in 0..7) {
+        $angle = (($rayIndex * 45) - 90) * [math]::PI / 180
+        $innerX = $center + ([math]::Cos($angle) * $innerRayRadius)
+        $innerY = $center + ([math]::Sin($angle) * $innerRayRadius)
+        $outerX = $center + ([math]::Cos($angle) * $outerRayRadius)
+        $outerY = $center + ([math]::Sin($angle) * $outerRayRadius)
+        $Graphics.DrawLine($rayPen, $innerX, $innerY, $outerX, $outerY)
+    }
+
+    # Cap the rays with a simple center disc to keep the icon feeling clean.
+    $Graphics.FillEllipse(
+        $coreBrush,
+        [System.Drawing.RectangleF]::new(
+            $center - $coreRadius,
+            $center - $coreRadius,
+            $coreRadius * 2,
+            $coreRadius * 2
+        )
+    )
+
+    $coreBrush.Dispose()
+    $rayPen.Dispose()
+}
+
 function New-AppIconBitmap {
     param([int]$Size)
 
@@ -25,85 +74,49 @@ function New-AppIconBitmap {
     $graphics.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
     $graphics.Clear([System.Drawing.Color]::Transparent)
 
-    # Scale the badge geometry from the requested output size.
-    $padding = [math]::Round($Size * 0.09)
-    $badgeSize = $Size - ($padding * 2)
-    $badgeRect = [System.Drawing.RectangleF]::new($padding, $padding, $badgeSize, $badgeSize)
-
-    # Paint the pink badge body with a soft diagonal gradient.
-    $gradient = [System.Drawing.Drawing2D.LinearGradientBrush]::new(
-        [System.Drawing.PointF]::new($badgeRect.Left, $badgeRect.Top),
-        [System.Drawing.PointF]::new($badgeRect.Right, $badgeRect.Bottom),
-        (New-ArgbColor 255 236 72 153),
-        (New-ArgbColor 255 251 113 133)
+    # Add a faint glow so the transparent app icon still feels polished in Windows.
+    $glowRadius = $Size * 0.38
+    $glowRect = [System.Drawing.RectangleF]::new(
+        ($Size / 2) - $glowRadius,
+        ($Size / 2) - $glowRadius,
+        $glowRadius * 2,
+        $glowRadius * 2
     )
-    $graphics.FillEllipse($gradient, $badgeRect)
+    $glowPath = [System.Drawing.Drawing2D.GraphicsPath]::new()
+    $glowPath.AddEllipse($glowRect)
+    $glowBrush = [System.Drawing.Drawing2D.PathGradientBrush]::new($glowPath)
+    $glowBrush.CenterColor = New-ArgbColor 72 236 72 153
+    $glowBrush.SurroundColors = @([System.Drawing.Color]::Transparent)
+    $graphics.FillEllipse($glowBrush, $glowRect)
 
-    # Add a subtle ring so the icon holds its shape on light backgrounds.
-    $ringPen = [System.Drawing.Pen]::new((New-ArgbColor 75 255 255 255), [math]::Max(1, $Size * 0.03))
-    $graphics.DrawEllipse($ringPen, $badgeRect)
+    # Reuse the same sun geometry as the tray icon so the brand mark stays consistent.
+    Draw-SunGlyph `
+        -Graphics $graphics `
+        -Size $Size `
+        -CoreColor (New-ArgbColor 255 236 72 153) `
+        -RayColor (New-ArgbColor 255 219 39 119) `
+        -CoreScale 0.34 `
+        -InnerRayScale 0.15 `
+        -OuterRayScale 0.38 `
+        -RayThicknessScale 0.072
 
-    # Layer in a glossy highlight to keep the app icon from feeling flat.
-    $highlightRect = [System.Drawing.RectangleF]::new(
-        $badgeRect.Left + ($badgeRect.Width * 0.1),
-        $badgeRect.Top + ($badgeRect.Height * 0.08),
-        $badgeRect.Width * 0.62,
-        $badgeRect.Height * 0.46
-    )
-    $highlightBrush = [System.Drawing.Drawing2D.LinearGradientBrush]::new(
-        [System.Drawing.PointF]::new($highlightRect.Left, $highlightRect.Top),
-        [System.Drawing.PointF]::new($highlightRect.Left, $highlightRect.Bottom),
-        (New-ArgbColor 120 255 255 255),
-        (New-ArgbColor 0 255 255 255)
-    )
-    $graphics.FillEllipse($highlightBrush, $highlightRect)
-
-    # Build the crescent by cutting a second ellipse out of the base moon shape.
-    $crescentBaseBrush = [System.Drawing.SolidBrush]::new((New-ArgbColor 255 255 248 252))
-    $crescentCutBrush = [System.Drawing.SolidBrush]::new((New-ArgbColor 255 219 39 119))
-    $crescentBaseRect = [System.Drawing.RectangleF]::new(
-        $badgeRect.Left + ($badgeRect.Width * 0.22),
-        $badgeRect.Top + ($badgeRect.Height * 0.2),
-        $badgeRect.Width * 0.42,
-        $badgeRect.Height * 0.58
-    )
-    $crescentCutRect = [System.Drawing.RectangleF]::new(
-        $crescentBaseRect.Left + ($badgeRect.Width * 0.14),
-        $crescentBaseRect.Top + ($badgeRect.Height * 0.04),
-        $crescentBaseRect.Width,
-        $crescentBaseRect.Height
-    )
-    $graphics.FillEllipse($crescentBaseBrush, $crescentBaseRect)
-    $graphics.FillEllipse($crescentCutBrush, $crescentCutRect)
-
-    # Draw the star accent as a dot plus a small cross flare.
-    $sparkBrush = [System.Drawing.SolidBrush]::new((New-ArgbColor 255 255 244 250))
-    $sparkCenterX = $badgeRect.Left + ($badgeRect.Width * 0.72)
-    $sparkCenterY = $badgeRect.Top + ($badgeRect.Height * 0.33)
-    $sparkRadius = [math]::Max(1.0, $Size * 0.035)
+    # Add one soft highlight so the larger app icon does not feel too flat.
+    $highlightRadius = $Size * 0.105
+    $highlightBrush = [System.Drawing.SolidBrush]::new((New-ArgbColor 76 255 244 250))
     $graphics.FillEllipse(
-        $sparkBrush,
+        $highlightBrush,
         [System.Drawing.RectangleF]::new(
-            $sparkCenterX - $sparkRadius,
-            $sparkCenterY - $sparkRadius,
-            $sparkRadius * 2,
-            $sparkRadius * 2
+            ($Size * 0.42) - $highlightRadius,
+            ($Size * 0.42) - $highlightRadius,
+            $highlightRadius * 2,
+            $highlightRadius * 2
         )
     )
 
-    $sparkPen = [System.Drawing.Pen]::new((New-ArgbColor 220 255 244 250), [math]::Max(1, $Size * 0.02))
-    $sparkLength = $Size * 0.07
-    $graphics.DrawLine($sparkPen, $sparkCenterX - $sparkLength, $sparkCenterY, $sparkCenterX + $sparkLength, $sparkCenterY)
-    $graphics.DrawLine($sparkPen, $sparkCenterX, $sparkCenterY - $sparkLength, $sparkCenterX, $sparkCenterY + $sparkLength)
-
     # Dispose the drawing resources before returning the bitmap itself.
-    $gradient.Dispose()
-    $ringPen.Dispose()
+    $glowBrush.Dispose()
+    $glowPath.Dispose()
     $highlightBrush.Dispose()
-    $crescentBaseBrush.Dispose()
-    $crescentCutBrush.Dispose()
-    $sparkBrush.Dispose()
-    $sparkPen.Dispose()
     $graphics.Dispose()
 
     return $bitmap
@@ -112,7 +125,7 @@ function New-AppIconBitmap {
 function New-TrayIconBitmap {
     param([int]$Size)
 
-    # Use a simplified silhouette so the tray icon stays legible at 32px.
+    # Keep the tray asset flat and bold so it survives at tiny taskbar sizes.
     $bitmap = [System.Drawing.Bitmap]::new($Size, $Size, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
     $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
     $graphics.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
@@ -120,54 +133,17 @@ function New-TrayIconBitmap {
     $graphics.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
     $graphics.Clear([System.Drawing.Color]::Transparent)
 
-    $pink = New-ArgbColor 255 219 39 119
-    $light = New-ArgbColor 255 255 244 250
+    # Match the app icon geometry while keeping the tray rendering fully flat.
+    Draw-SunGlyph `
+        -Graphics $graphics `
+        -Size $Size `
+        -CoreColor (New-ArgbColor 255 236 72 153) `
+        -RayColor (New-ArgbColor 255 219 39 119) `
+        -CoreScale 0.34 `
+        -InnerRayScale 0.15 `
+        -OuterRayScale 0.38 `
+        -RayThicknessScale 0.08
 
-    $baseBrush = [System.Drawing.SolidBrush]::new($light)
-    $cutBrush = [System.Drawing.SolidBrush]::new($pink)
-    $sparkBrush = [System.Drawing.SolidBrush]::new($light)
-    $sparkPen = [System.Drawing.Pen]::new($light, [math]::Max(2, $Size * 0.08))
-    $sparkPen.StartCap = [System.Drawing.Drawing2D.LineCap]::Round
-    $sparkPen.EndCap = [System.Drawing.Drawing2D.LineCap]::Round
-
-    $baseRect = [System.Drawing.RectangleF]::new(
-        $Size * 0.15,
-        $Size * 0.12,
-        $Size * 0.48,
-        $Size * 0.72
-    )
-    $cutRect = [System.Drawing.RectangleF]::new(
-        $Size * 0.34,
-        $Size * 0.12,
-        $Size * 0.46,
-        $Size * 0.72
-    )
-
-    $graphics.FillEllipse($baseBrush, $baseRect)
-    $graphics.FillEllipse($cutBrush, $cutRect)
-
-    # Reuse the small sparkle so the tray icon still reads as Dimsome.
-    $sparkCenterX = $Size * 0.74
-    $sparkCenterY = $Size * 0.3
-    $sparkLength = $Size * 0.08
-    $sparkRadius = [math]::Max(1.5, $Size * 0.065)
-
-    $graphics.DrawLine($sparkPen, $sparkCenterX - $sparkLength, $sparkCenterY, $sparkCenterX + $sparkLength, $sparkCenterY)
-    $graphics.DrawLine($sparkPen, $sparkCenterX, $sparkCenterY - $sparkLength, $sparkCenterX, $sparkCenterY + $sparkLength)
-    $graphics.FillEllipse(
-        $sparkBrush,
-        [System.Drawing.RectangleF]::new(
-            $sparkCenterX - $sparkRadius,
-            $sparkCenterY - $sparkRadius,
-            $sparkRadius * 2,
-            $sparkRadius * 2
-        )
-    )
-
-    $baseBrush.Dispose()
-    $cutBrush.Dispose()
-    $sparkBrush.Dispose()
-    $sparkPen.Dispose()
     $graphics.Dispose()
 
     return $bitmap
