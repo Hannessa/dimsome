@@ -110,6 +110,21 @@ pub(crate) fn open_settings_window(app: &tauri::AppHandle) -> tauri::Result<()> 
     Ok(())
 }
 
+pub(crate) fn toggle_settings_window(app: &tauri::AppHandle) -> tauri::Result<()> {
+    let window = ensure_settings_window(app)?;
+
+    // Hide the panel when it is already visible so tray clicks alternate between show and hide.
+    if window.is_visible()? {
+        window.hide()?;
+        return Ok(());
+    }
+
+    // Show and focus the panel when it is currently tucked away in the tray.
+    window.show()?;
+    window.set_focus()?;
+    Ok(())
+}
+
 pub fn run() {
     tauri::Builder::default()
         .manage(initialize_state())
@@ -212,9 +227,9 @@ pub fn run() {
                         button: MouseButton::Left,
                         ..
                     } => {
-                        // Treat a tray click like "show me the settings window".
-                        if let Err(error) = open_settings_window(tray.app_handle()) {
-                            eprintln!("Failed to open settings window: {error}");
+                        // Let repeated tray clicks toggle the settings panel without affecting the menu action.
+                        if let Err(error) = toggle_settings_window(tray.app_handle()) {
+                            eprintln!("Failed to toggle settings window: {error}");
                         }
                     }
                     _ => {}
