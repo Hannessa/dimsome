@@ -41,6 +41,7 @@ const pendingSliderBrightness = ref<number | null>(null);
 const saveQueued = ref(false);
 const isSaving = ref(false);
 const isExiting = ref(false);
+const isResumingSchedule = ref(false);
 const skipAutosave = ref(true);
 const lastSavedSnapshot = ref<string | null>(null);
 // Reuse the live autosave promise so shutdown can wait for the same queue to settle.
@@ -105,6 +106,11 @@ function toDimPercent(brightnessPercent: number) {
 // Reflect backend state changes back into the slider's brightness-oriented UI.
 function syncSliderToState(state: EffectiveDimState | null) {
   sliderBrightness.value = 100 - (state?.currentDimPercent ?? 0);
+}
+
+// Ignore stale manual or paused updates while a schedule re-enable is still settling.
+function shouldIgnoreStateWhileResuming(state: EffectiveDimState) {
+  return isResumingSchedule.value && (settings.value?.scheduleEnabled ?? false) && state.mode !== "Auto";
 }
 
 // Fail loudly if a settings-only action runs before initialization finishes.
@@ -358,6 +364,10 @@ onMounted(async () => {
 
 // Mirror backend state broadcasts into the live brightness display.
 onStateChanged((payload) => {
+  if (shouldIgnoreStateWhileResuming(payload)) {
+    return;
+  }
+
   currentState.value = payload;
   syncSliderToState(payload);
 });
@@ -375,6 +385,34 @@ onSettingsSaved((payload) => {
 onStartupStateChanged((payload) => {
   startupState.value = payload;
 });
+
+// When the schedule is re-enabled, resume automatic mode so the schedule takes effect.
+watch(
+  () => settings.value?.scheduleEnabled,
+  async (enabled, previousEnabled) => {
+    if (enabled && previousEnabled === false) {
+      isResumingSchedule.value = true;
+
+      try {
+        // Let the autosave watcher queue its persistence work before resuming the schedule.
+        await nextTick();
+
+        const resumedState = await resumeSchedule();
+        currentState.value = resumedState;
+        syncSliderToState(resumedState);
+
+        // Keep ignoring stale events until the schedule toggle save has finished too.
+        while (saveQueued.value || activeAutosavePromise) {
+          await flushAutosaveQueue();
+        }
+      } catch (error) {
+        console.error("Failed to resume the schedule after enabling it.", error);
+      } finally {
+        isResumingSchedule.value = false;
+      }
+    }
+  }
+);
 
 watch(
   () => (settings.value ? serializeAutosaveSettings(settings.value) : null),
