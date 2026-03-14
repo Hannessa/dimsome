@@ -9,7 +9,7 @@ mod windows;
 
 use tauri::{
     image::Image,
-    menu::{MenuBuilder, MenuItemBuilder},
+    menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     window::Color,
     Emitter, Manager, PhysicalPosition, PhysicalRect, PhysicalSize, WebviewUrl, WebviewWindow,
@@ -125,6 +125,12 @@ pub(crate) fn toggle_settings_window(app: &tauri::AppHandle) -> tauri::Result<()
     Ok(())
 }
 
+const TRAY_BRIGHTNESS_PRESETS: [u8; 10] = [100, 90, 80, 70, 60, 50, 40, 30, 20, 10];
+
+fn tray_brightness_menu_id(brightness_percent: u8) -> String {
+    format!("brightness_{brightness_percent}")
+}
+
 pub fn run() {
     tauri::Builder::default()
         .manage(initialize_state())
@@ -170,13 +176,38 @@ pub fn run() {
             app.manage(hotkey_manager);
 
             // Build the small tray menu around the app's most common actions.
+            let brightness_items = TRAY_BRIGHTNESS_PRESETS
+                .iter()
+                .map(|brightness_percent| {
+                    // Keep the native labels in brightness terms while the backend still stores dim percentage.
+                    MenuItemBuilder::with_id(
+                        tray_brightness_menu_id(*brightness_percent),
+                        format!("{brightness_percent}%"),
+                    )
+                    .build(app)
+                })
+                .collect::<tauri::Result<Vec<_>>>()?;
+            let enable_schedule =
+                MenuItemBuilder::with_id("enable_schedule", "Enable Schedule").build(app)?;
             let open_settings =
                 MenuItemBuilder::with_id("open_settings", "Open Settings").build(app)?;
-            let pause_resume =
-                MenuItemBuilder::with_id("pause_resume", "Pause / Resume").build(app)?;
             let quit = MenuItemBuilder::with_id("quit", "Exit").build(app)?;
-            let menu = MenuBuilder::new(app)
-                .items(&[&open_settings, &pause_resume, &quit])
+            let schedule_separator = PredefinedMenuItem::separator(app)?;
+            let actions_separator = PredefinedMenuItem::separator(app)?;
+            let mut menu = MenuBuilder::new(app);
+
+            // Put the fixed brightness shortcuts first so right-click access is direct.
+            for item in &brightness_items {
+                menu = menu.item(item);
+            }
+
+            // Break the menu into visual groups so the fixed presets read separately from app actions.
+            let menu = menu
+                .item(&schedule_separator)
+                .item(&enable_schedule)
+                .item(&actions_separator)
+                .item(&open_settings)
+                .item(&quit)
                 .build()?;
             let tray_icon = Image::new(TRAY_ICON_RGBA, TRAY_ICON_WIDTH, TRAY_ICON_HEIGHT);
 
@@ -185,39 +216,68 @@ pub fn run() {
                 .menu(&menu)
                 // Keep the native tray menu on right click only so left click can open Settings.
                 .show_menu_on_left_click(false)
-                .on_menu_event(|app, event| match event.id.as_ref() {
-                    "open_settings" => {
-                        if let Err(error) = open_settings_window(app) {
-                            eprintln!("Failed to open settings window: {error}");
-                        }
-                    }
-                    "pause_resume" => {
+                .on_menu_event(|app, event| {
+                    if let Some(brightness_percent) = event
+                        .id
+                        .as_ref()
+                        .strip_prefix("brightness_")
+                        .and_then(|value| value.parse::<f64>().ok())
+                    {
                         let app_handle = app.clone();
                         tauri::async_runtime::spawn(async move {
                             if let Some(shared) =
                                 app_handle.try_state::<crate::state::SharedState>()
                             {
-                                let current = shared.inner().read().await.current_state.clone();
-                                if current.mode == crate::models::EffectiveDimMode::Paused {
-                                    let _ = crate::state::resume(shared.inner(), &app_handle).await;
-                                } else {
-                                    let _ = crate::state::pause(shared.inner(), &app_handle).await;
+                                // Convert brightness labels into the stored dim percentage used by the engine.
+                                let dim_percent = (100.0 - brightness_percent).clamp(0.0, 99.0);
+                                if let Err(error) = crate::state::apply_manual_dim_and_disable_schedule(
+                                    shared.inner(),
+                                    &app_handle,
+                                    dim_percent,
+                                )
+                                .await
+                                {
+                                    eprintln!("Failed to apply tray brightness preset: {error}");
                                 }
                             }
                         });
+                        return;
                     }
-                    "quit" => {
-                        let app_handle = app.clone();
-                        tauri::async_runtime::spawn(async move {
-                            if let Some(shared) =
-                                app_handle.try_state::<crate::state::SharedState>()
-                            {
-                                reset_dimming_before_exit(shared.inner()).await;
+
+                    match event.id.as_ref() {
+                        "enable_schedule" => {
+                            let app_handle = app.clone();
+                            tauri::async_runtime::spawn(async move {
+                                if let Some(shared) =
+                                    app_handle.try_state::<crate::state::SharedState>()
+                                {
+                                    if let Err(error) =
+                                        crate::state::enable_schedule(shared.inner(), &app_handle)
+                                            .await
+                                    {
+                                        eprintln!("Failed to re-enable schedule from tray: {error}");
+                                    }
+                                }
+                            });
+                        }
+                        "open_settings" => {
+                            if let Err(error) = open_settings_window(app) {
+                                eprintln!("Failed to open settings window: {error}");
                             }
-                            app_handle.exit(0);
-                        });
+                        }
+                        "quit" => {
+                            let app_handle = app.clone();
+                            tauri::async_runtime::spawn(async move {
+                                if let Some(shared) =
+                                    app_handle.try_state::<crate::state::SharedState>()
+                                {
+                                    reset_dimming_before_exit(shared.inner()).await;
+                                }
+                                app_handle.exit(0);
+                            });
+                        }
+                        _ => {}
                     }
-                    _ => {}
                 })
                 .on_tray_icon_event(|tray, event| match event {
                     TrayIconEvent::Click {

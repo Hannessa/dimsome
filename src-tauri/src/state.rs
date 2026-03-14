@@ -146,6 +146,33 @@ pub async fn apply_manual_dim(
     refresh_state(shared, Some(app)).await
 }
 
+pub async fn apply_manual_dim_and_disable_schedule(
+    shared: &SharedState,
+    app: &AppHandle,
+    dim_percent: f64,
+) -> Result<EffectiveDimState, String> {
+    let saved = {
+        let mut state = shared.write().await;
+
+        // Persist the scheduler toggle first so tray actions survive app restarts.
+        let mut next_settings = state.settings.clone();
+        next_settings.schedule_enabled = false;
+        let saved = settings::save_settings(&next_settings)?;
+
+        // Keep the runtime state aligned with the saved settings and requested dim target.
+        state.settings = saved.clone();
+        state.manual_dim_percent = Some(clamp_dim_precise(dim_percent));
+        state.manual_override_until = None;
+        state.schedule_paused = false;
+        state.paused_dim_percent = 0.0;
+        saved
+    };
+
+    let next = refresh_state(shared, Some(app)).await;
+    let _ = app.emit("settings_saved", saved);
+    Ok(next)
+}
+
 fn nudge_target(
     current_dim_percent: f64,
     step_percent: f64,
@@ -203,6 +230,32 @@ pub async fn resume(shared: &SharedState, app: &AppHandle) -> EffectiveDimState 
         state.manual_override_until = None;
     }
     refresh_state(shared, Some(app)).await
+}
+
+pub async fn enable_schedule(
+    shared: &SharedState,
+    app: &AppHandle,
+) -> Result<EffectiveDimState, String> {
+    let saved = {
+        let mut state = shared.write().await;
+
+        // Persist the scheduler toggle before clearing transient manual or paused state.
+        let mut next_settings = state.settings.clone();
+        next_settings.schedule_enabled = true;
+        let saved = settings::save_settings(&next_settings)?;
+
+        // Drop manual and paused overrides so the schedule takes over immediately.
+        state.settings = saved.clone();
+        state.schedule_paused = false;
+        state.manual_dim_percent = None;
+        state.manual_override_until = None;
+        state.paused_dim_percent = 0.0;
+        saved
+    };
+
+    let next = refresh_state(shared, Some(app)).await;
+    let _ = app.emit("settings_saved", saved);
+    Ok(next)
 }
 
 fn coerce_settings_for_capabilities(

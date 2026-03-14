@@ -72,7 +72,7 @@ const dimmingMethodOptions = computed<Array<{ label: string; value: DimmingMetho
 ]);
 
 // Summarize the tradeoffs so the selector stays short and the details stay readable.
-const brightnessStepSummary = computed(() => `${settings.value?.dimStepPercent ?? 0}% per hotkey press`);
+const brightnessStepSummary = computed(() => `${settings.value?.dimStepPercent ?? 0}% brightness per hotkey press`);
 const currentBrightnessPercent = computed(() => 100 - Math.round(currentState.value?.currentDimPercent ?? 0));
 const isFollowingSchedule = computed(() => (currentState.value?.mode ?? "Auto") === "Auto");
 const selectedAppearanceMode = computed({
@@ -683,7 +683,7 @@ watch(
               <InputText v-model="settings.manualHotkeys.dimLess.key" fluid @blur="saveHotkeys" />
             </label>-->
             <label :class="[fieldClass, 'mt-6']">
-              <span :class="fieldLabelClass">Brightness step size</span>
+              <span :class="fieldLabelClass">Hotkey step size</span>
               <AppSlider v-model="settings.dimStepPercent" :min="1" :max="25" :step="1" />
             </label>
             <p class="mt-3 text-[var(--muted)]">{{ brightnessStepSummary }}</p>
