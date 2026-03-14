@@ -151,10 +151,12 @@ pub fn run() {
                     // Map global hotkeys onto the same nudge logic the UI uses.
                     match action {
                         HotkeyAction::DimMore => {
-                            let _ = crate::state::nudge(&shared, &app_handle, 1.0).await;
+                            // Route global hotkeys through the hotkey-specific floor logic.
+                            let _ = crate::state::nudge_hotkey(&shared, &app_handle, 1.0).await;
                         }
                         HotkeyAction::DimLess => {
-                            let _ = crate::state::nudge(&shared, &app_handle, -1.0).await;
+                            // Route global hotkeys through the hotkey-specific floor logic.
+                            let _ = crate::state::nudge_hotkey(&shared, &app_handle, -1.0).await;
                         }
                     }
                 });

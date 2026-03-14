@@ -9,7 +9,9 @@ use crate::{
         AppSettings, DimmingCapabilities, DimmingMethod, EffectiveDimMode, EffectiveDimState,
         ManualOverrideSession,
     },
-    schedule::{get_effective_dim, normalize_settings, now_fixed, resolve_state},
+    schedule::{
+        clamp_dim_precise, get_effective_dim, normalize_settings, now_fixed, resolve_state,
+    },
     settings,
     windows::{probe_dimming_capabilities, DimmingManager},
 };
@@ -144,10 +146,38 @@ pub async fn apply_manual_dim(
     refresh_state(shared, Some(app)).await
 }
 
-pub async fn nudge(shared: &SharedState, app: &AppHandle, direction: f64) -> EffectiveDimState {
+fn nudge_target(
+    current_dim_percent: f64,
+    step_percent: f64,
+    direction: f64,
+    maximum_dim_percent: f64,
+) -> f64 {
+    // Apply the requested step first so both hotkeys and future nudges share one calculation path.
+    let nudged_dim_percent = current_dim_percent + (step_percent * direction);
+
+    // Cap hotkey dimming so the remaining screen brightness never drops below five percent.
+    if direction > 0.0 {
+        return clamp_dim_precise(nudged_dim_percent.min(maximum_dim_percent));
+    }
+
+    clamp_dim_precise(nudged_dim_percent)
+}
+
+pub async fn nudge_hotkey(
+    shared: &SharedState,
+    app: &AppHandle,
+    direction: f64,
+) -> EffectiveDimState {
     let next_dim_percent = {
         let state = shared.read().await;
-        state.current_state.current_dim_percent + (state.settings.dim_step_percent * direction)
+
+        // Keep hotkey-driven dimming at or below ninety-five percent so brightness stays at least five percent.
+        nudge_target(
+            state.current_state.current_dim_percent,
+            state.settings.dim_step_percent,
+            direction,
+            95.0,
+        )
     };
 
     apply_manual_dim(shared, app, next_dim_percent).await
@@ -187,4 +217,24 @@ fn coerce_settings_for_capabilities(
     }
 
     settings
+}
+
+#[cfg(test)]
+mod tests {
+    use super::nudge_target;
+
+    #[test]
+    fn hotkey_maximum_stops_dim_more_at_ninety_five_percent() {
+        assert_eq!(nudge_target(93.0, 5.0, 1.0, 95.0), 95.0);
+    }
+
+    #[test]
+    fn hotkey_cap_does_not_change_dim_less_nudges() {
+        assert_eq!(nudge_target(8.0, 5.0, -1.0, 95.0), 3.0);
+    }
+
+    #[test]
+    fn high_cap_does_not_change_regular_dim_more_steps_below_limit() {
+        assert_eq!(nudge_target(40.0, 5.0, 1.0, 95.0), 45.0);
+    }
 }
