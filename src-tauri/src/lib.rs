@@ -140,8 +140,8 @@ pub fn run() {
             commands::save_settings,
             commands::get_effective_state,
             commands::apply_manual_dim,
-            commands::pause_schedule,
-            commands::resume_schedule,
+            commands::apply_manual_dim_and_disable_schedule,
+            commands::enable_schedule,
             commands::get_startup_state,
             commands::set_startup_enabled,
             commands::exit_app
@@ -158,11 +158,19 @@ pub fn run() {
                     match action {
                         HotkeyAction::DimMore => {
                             // Route global hotkeys through the hotkey-specific floor logic.
-                            let _ = crate::state::nudge_hotkey(&shared, &app_handle, 1.0).await;
+                            if let Err(error) =
+                                crate::state::nudge_hotkey(&shared, &app_handle, 1.0).await
+                            {
+                                eprintln!("Failed to apply dim-more hotkey: {error}");
+                            }
                         }
                         HotkeyAction::DimLess => {
                             // Route global hotkeys through the hotkey-specific floor logic.
-                            let _ = crate::state::nudge_hotkey(&shared, &app_handle, -1.0).await;
+                            if let Err(error) =
+                                crate::state::nudge_hotkey(&shared, &app_handle, -1.0).await
+                            {
+                                eprintln!("Failed to apply dim-less hotkey: {error}");
+                            }
                         }
                     }
                 });

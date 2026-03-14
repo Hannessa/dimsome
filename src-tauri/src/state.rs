@@ -22,8 +22,6 @@ pub struct RuntimeState {
     pub current_state: EffectiveDimState,
     pub manual_dim_percent: Option<f64>,
     pub manual_override_until: Option<DateTime<chrono::FixedOffset>>,
-    pub schedule_paused: bool,
-    pub paused_dim_percent: f64,
     pub dimming_manager: DimmingManager,
 }
 
@@ -44,8 +42,6 @@ impl RuntimeState {
             },
             manual_dim_percent: None,
             manual_override_until: None,
-            schedule_paused: false,
-            paused_dim_percent: 0.0,
             dimming_manager: DimmingManager::new(),
         }
     }
@@ -64,10 +60,8 @@ pub async fn refresh_state(shared: &SharedState, app: Option<&AppHandle>) -> Eff
     let next = resolve_state(
         &state.settings,
         &ManualOverrideSession {
-            is_paused: state.schedule_paused,
             manual_dim_percent: state.manual_dim_percent,
             manual_override_until: state.manual_override_until,
-            paused_dim_percent: state.paused_dim_percent,
         },
         now,
     );
@@ -138,7 +132,6 @@ pub async fn apply_manual_dim(
         let mut state = shared.write().await;
         // Manual changes resume scheduling later, rather than permanently disabling it.
         state.manual_dim_percent = Some(dim_percent);
-        state.schedule_paused = false;
         state.manual_override_until = get_effective_dim(&state.settings, now_fixed())
             .ok()
             .and_then(|schedule| schedule.next_transition_start);
@@ -154,17 +147,19 @@ pub async fn apply_manual_dim_and_disable_schedule(
     let saved = {
         let mut state = shared.write().await;
 
-        // Persist the scheduler toggle first so tray actions survive app restarts.
-        let mut next_settings = state.settings.clone();
-        next_settings.schedule_enabled = false;
-        let saved = settings::save_settings(&next_settings)?;
+        // Persist the scheduler toggle the first time manual control takes over.
+        let saved = if state.settings.schedule_enabled {
+            let mut next_settings = state.settings.clone();
+            next_settings.schedule_enabled = false;
+            settings::save_settings(&next_settings)?
+        } else {
+            state.settings.clone()
+        };
 
         // Keep the runtime state aligned with the saved settings and requested dim target.
         state.settings = saved.clone();
         state.manual_dim_percent = Some(clamp_dim_precise(dim_percent));
         state.manual_override_until = None;
-        state.schedule_paused = false;
-        state.paused_dim_percent = 0.0;
         saved
     };
 
@@ -194,7 +189,7 @@ pub async fn nudge_hotkey(
     shared: &SharedState,
     app: &AppHandle,
     direction: f64,
-) -> EffectiveDimState {
+) -> Result<EffectiveDimState, String> {
     let next_dim_percent = {
         let state = shared.read().await;
 
@@ -207,29 +202,8 @@ pub async fn nudge_hotkey(
         )
     };
 
-    apply_manual_dim(shared, app, next_dim_percent).await
-}
-
-pub async fn pause(shared: &SharedState, app: &AppHandle) -> EffectiveDimState {
-    {
-        let mut state = shared.write().await;
-        // Freeze the current dim value so pause keeps the desktop exactly as-is.
-        state.schedule_paused = true;
-        state.manual_dim_percent = None;
-        state.manual_override_until = None;
-        state.paused_dim_percent = state.current_state.current_dim_percent;
-    }
-    refresh_state(shared, Some(app)).await
-}
-
-pub async fn resume(shared: &SharedState, app: &AppHandle) -> EffectiveDimState {
-    {
-        let mut state = shared.write().await;
-        state.schedule_paused = false;
-        state.manual_dim_percent = None;
-        state.manual_override_until = None;
-    }
-    refresh_state(shared, Some(app)).await
+    // Hotkeys now follow the same behavior as direct slider drags and disable the schedule.
+    apply_manual_dim_and_disable_schedule(shared, app, next_dim_percent).await
 }
 
 pub async fn enable_schedule(
@@ -239,17 +213,15 @@ pub async fn enable_schedule(
     let saved = {
         let mut state = shared.write().await;
 
-        // Persist the scheduler toggle before clearing transient manual or paused state.
+        // Persist the scheduler toggle before clearing the manual override state.
         let mut next_settings = state.settings.clone();
         next_settings.schedule_enabled = true;
         let saved = settings::save_settings(&next_settings)?;
 
-        // Drop manual and paused overrides so the schedule takes over immediately.
+        // Drop manual overrides so the schedule takes over immediately.
         state.settings = saved.clone();
-        state.schedule_paused = false;
         state.manual_dim_percent = None;
         state.manual_override_until = None;
-        state.paused_dim_percent = 0.0;
         saved
     };
 

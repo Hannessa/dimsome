@@ -37,7 +37,7 @@ export interface DimmingCapabilities {
   magnificationStatusText: string;
 }
 
-export type EffectiveDimMode = "Auto" | "Manual" | "Paused";
+export type EffectiveDimMode = "Auto" | "Manual";
 
 export interface EffectiveDimState {
   mode: EffectiveDimMode;

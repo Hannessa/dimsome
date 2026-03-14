@@ -23,16 +23,12 @@ export function getEffectiveState() {
   return invoke<EffectiveDimState>("get_effective_state");
 }
 
-export function applyManualDim(dimPercent: number) {
-  return invoke<EffectiveDimState>("apply_manual_dim", { dimPercent });
+export function applyManualDimAndDisableSchedule(dimPercent: number) {
+  return invoke<EffectiveDimState>("apply_manual_dim_and_disable_schedule", { dimPercent });
 }
 
-export function pauseSchedule() {
-  return invoke<EffectiveDimState>("pause_schedule");
-}
-
-export function resumeSchedule() {
-  return invoke<EffectiveDimState>("resume_schedule");
+export function enableSchedule() {
+  return invoke<EffectiveDimState>("enable_schedule");
 }
 
 export function getStartupState() {

@@ -155,14 +155,6 @@ pub fn resolve_state(
     session: &ManualOverrideSession,
     now: DateTime<FixedOffset>,
 ) -> EffectiveDimState {
-    if session.is_paused {
-        return EffectiveDimState {
-            mode: EffectiveDimMode::Paused,
-            current_dim_percent: clamp_dim_precise(session.paused_dim_percent),
-            manual_override_until: None,
-        };
-    }
-
     if let Some(manual) = session.manual_dim_percent {
         if session
             .manual_override_until
@@ -314,10 +306,8 @@ mod tests {
         )
         .unwrap();
         let session = ManualOverrideSession {
-            is_paused: false,
             manual_dim_percent: Some(10.0),
             manual_override_until: schedule.next_transition_start,
-            paused_dim_percent: 0.0,
         };
         let before = resolve_state(
             &settings,

@@ -50,19 +50,20 @@ pub async fn apply_manual_dim(
 }
 
 #[tauri::command]
-pub async fn pause_schedule(
+pub async fn apply_manual_dim_and_disable_schedule(
     app: AppHandle,
     state: State<'_, SharedState>,
+    dim_percent: f64,
 ) -> Result<EffectiveDimState, String> {
-    Ok(state::pause(&state.inner().clone(), &app).await)
+    state::apply_manual_dim_and_disable_schedule(&state.inner().clone(), &app, dim_percent).await
 }
 
 #[tauri::command]
-pub async fn resume_schedule(
+pub async fn enable_schedule(
     app: AppHandle,
     state: State<'_, SharedState>,
 ) -> Result<EffectiveDimState, String> {
-    Ok(state::resume(&state.inner().clone(), &app).await)
+    state::enable_schedule(&state.inner().clone(), &app).await
 }
 
 #[tauri::command]

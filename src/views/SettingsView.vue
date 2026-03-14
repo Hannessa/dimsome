@@ -8,13 +8,13 @@ import Select from "primevue/select";
 import ToggleSwitch from "primevue/toggleswitch";
 import AppSlider from "../components/AppSlider.vue";
 import {
-  applyManualDim,
+  applyManualDimAndDisableSchedule,
   exitApp,
+  enableSchedule,
   getDimmingCapabilities,
   getEffectiveState,
   getSettings,
   getStartupState,
-  resumeSchedule,
   saveSettings,
   setStartupEnabled
 } from "../lib/api";
@@ -74,7 +74,6 @@ const dimmingMethodOptions = computed<Array<{ label: string; value: DimmingMetho
 // Summarize the tradeoffs so the selector stays short and the details stay readable.
 const brightnessStepSummary = computed(() => `${settings.value?.dimStepPercent ?? 0}% brightness per hotkey press`);
 const currentBrightnessPercent = computed(() => 100 - Math.round(currentState.value?.currentDimPercent ?? 0));
-const isFollowingSchedule = computed(() => (currentState.value?.mode ?? "Auto") === "Auto");
 const selectedAppearanceMode = computed({
   get: () => settings.value?.appearanceMode ?? "system",
   set: (value: "system" | AppearanceMode) => {
@@ -104,7 +103,7 @@ function syncSliderToState(state: EffectiveDimState | null) {
   sliderBrightness.value = 100 - (state?.currentDimPercent ?? 0);
 }
 
-// Ignore stale manual or paused updates while a schedule re-enable is still settling.
+// Ignore stale manual updates while a schedule re-enable is still settling.
 function shouldIgnoreStateWhileResuming(state: EffectiveDimState) {
   return isResumingSchedule.value && (settings.value?.scheduleEnabled ?? false) && state.mode !== "Auto";
 }
@@ -321,12 +320,17 @@ async function applyBrightnessWhileDragging(nextBrightness: number) {
 
   isApplyingSliderBrightness.value = true;
 
+  // Mirror the manual interaction in the form immediately so the toggle reflects the live state.
+  if (settings.value?.scheduleEnabled) {
+    settings.value.scheduleEnabled = false;
+  }
+
   try {
     while (pendingSliderBrightness.value !== null) {
       const brightnessToApply = pendingSliderBrightness.value;
       pendingSliderBrightness.value = null;
-      // Manual changes temporarily override the schedule until the next transition.
-      currentState.value = await applyManualDim(toDimPercent(brightnessToApply));
+      // Route slider drags through the backend path that permanently disables the schedule.
+      currentState.value = await applyManualDimAndDisableSchedule(toDimPercent(brightnessToApply));
       syncSliderToState(currentState.value);
     }
   } finally {
@@ -382,7 +386,7 @@ onStartupStateChanged((payload) => {
   startupState.value = payload;
 });
 
-// When the schedule is re-enabled, resume automatic mode so the schedule takes effect.
+// When the schedule is re-enabled, tell the backend to restore automatic scheduling right away.
 watch(
   () => settings.value?.scheduleEnabled,
   async (enabled, previousEnabled) => {
@@ -393,9 +397,9 @@ watch(
         // Let the autosave watcher queue its persistence work before resuming the schedule.
         await nextTick();
 
-        const resumedState = await resumeSchedule();
-        currentState.value = resumedState;
-        syncSliderToState(resumedState);
+        const enabledState = await enableSchedule();
+        currentState.value = enabledState;
+        syncSliderToState(enabledState);
 
         // Keep ignoring stale events until the schedule toggle save has finished too.
         while (saveQueued.value || activeAutosavePromise) {
@@ -485,18 +489,8 @@ watch(
       class=""
     >
       <div class="h-14 w-full flex justify-center">
-      <!-- Clicking the paused badge is the quickest way back to automatic mode. -->
-      <div
-        v-if="!isFollowingSchedule && settings.scheduleEnabled"
-        class="float-right inline-flex items-center justify-center gap-2.5 text-base font-semibold text-[var(--muted)] cursor-pointer transition-colors hover:text-[var(--text)] mt-2 mb-6"
-        @click="resumeSchedule"
-      >
-        <span>Schedule Paused - Click to Resume</span>
-      </div>
-
       <!-- The master toggle dims the whole schedule editor without deleting points. -->
       <label 
-        v-else
         class="inline-flex w-fit items-center gap-3 px-4 py-3 text-left justify-self-center cursor-pointer mb-4 ">
         <ToggleSwitch v-model="settings.scheduleEnabled" />
         <span class="text-[0.9rem] font-semibold uppercase tracking-[0.04em] text-[var(--muted)]">Enable schedule</span>

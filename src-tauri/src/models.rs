@@ -118,7 +118,6 @@ pub struct SchedulePoint {
 pub enum EffectiveDimMode {
     Auto,
     Manual,
-    Paused,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -132,10 +131,8 @@ pub struct EffectiveDimState {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ManualOverrideSession {
-    pub is_paused: bool,
     pub manual_dim_percent: Option<f64>,
     pub manual_override_until: Option<DateTime<FixedOffset>>,
-    pub paused_dim_percent: f64,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
