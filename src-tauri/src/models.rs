@@ -20,7 +20,7 @@ pub enum DimmingMethod {
 }
 
 pub fn default_dimming_method() -> DimmingMethod {
-    DimmingMethod::Overlay
+    DimmingMethod::Magnification
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -40,28 +40,30 @@ pub struct AppSettings {
 
 impl Default for AppSettings {
     fn default() -> Self {
-        // Seed the app with one daytime point and one nighttime point out of the box.
+        // Seed first-run installs with the preferred startup, dimming, and schedule defaults.
         Self {
             version: CURRENT_VERSION,
-            startup_enabled: true,
+            startup_enabled: false,
             schedule_enabled: true,
             dim_step_percent: 5.0,
             dimming_method: default_dimming_method(),
             appearance_mode: None,
             manual_hotkeys: ManualHotkeys::default(),
             schedule_points: vec![
+                // Restore full brightness by 08:00 using the new morning fade duration.
                 SchedulePoint {
                     id: Uuid::new_v4(),
-                    time_of_day: "07:00:00".to_string(),
+                    time_of_day: "08:00:00".to_string(),
                     target_dim_percent: 0.0,
-                    transition_minutes: 30,
+                    transition_minutes: 60,
                     enabled: true,
                 },
+                // Reach the nighttime dim target at 23:00 with a longer evening fade.
                 SchedulePoint {
                     id: Uuid::new_v4(),
                     time_of_day: "23:00:00".to_string(),
                     target_dim_percent: 50.0,
-                    transition_minutes: 60,
+                    transition_minutes: 120,
                     enabled: true,
                 },
             ],
@@ -165,7 +167,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn app_settings_default_to_overlay_when_dimming_method_is_missing() {
+    fn app_settings_default_to_magnification_when_dimming_method_is_missing() {
         let json = json!({
             "version": 1,
             "startupEnabled": true,
@@ -190,7 +192,33 @@ mod tests {
         let settings: AppSettings =
             serde_json::from_value(json).expect("legacy settings should deserialize");
 
-        assert_eq!(settings.dimming_method, DimmingMethod::Overlay);
+        assert_eq!(settings.dimming_method, DimmingMethod::Magnification);
+    }
+
+    #[test]
+    fn app_settings_default_match_first_run_preferences() {
+        let settings = AppSettings::default();
+
+        // Confirm the fresh-install settings match the intended first-run experience.
+        assert_eq!(settings.startup_enabled, false);
+        assert_eq!(settings.schedule_enabled, true);
+        assert_eq!(settings.dim_step_percent, 5.0);
+        assert_eq!(settings.dimming_method, DimmingMethod::Magnification);
+        assert_eq!(settings.appearance_mode, None);
+        assert_eq!(settings.manual_hotkeys, ManualHotkeys::default());
+        assert_eq!(settings.schedule_points.len(), 2);
+
+        // Check the morning point lands at full brightness at 08:00.
+        assert_eq!(settings.schedule_points[0].time_of_day, "08:00:00");
+        assert_eq!(settings.schedule_points[0].target_dim_percent, 0.0);
+        assert_eq!(settings.schedule_points[0].transition_minutes, 60);
+        assert_eq!(settings.schedule_points[0].enabled, true);
+
+        // Check the evening point lands at fifty percent dim at 23:00.
+        assert_eq!(settings.schedule_points[1].time_of_day, "23:00:00");
+        assert_eq!(settings.schedule_points[1].target_dim_percent, 50.0);
+        assert_eq!(settings.schedule_points[1].transition_minutes, 120);
+        assert_eq!(settings.schedule_points[1].enabled, true);
     }
 
     #[test]

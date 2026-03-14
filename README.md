@@ -65,23 +65,6 @@ Dimsome stores app settings at:
 %LOCALAPPDATA%\Dimsome\settings.json
 ```
 
-The current settings model includes:
-
-- Startup enablement
-- Schedule enablement
-- Manual dim step percentage
-- Manual hotkey bindings
-- Scheduled dim points with target percentage and fade duration
-
-Default behavior includes:
-
-- Startup enabled
-- Schedule enabled
-- `Alt + PageDown` to dim more
-- `Alt + PageUp` to dim less
-- A daytime schedule point at `07:00`
-- A nighttime schedule point at `23:00`
-
 ## Notes
 
 - This project is currently focused on Windows behavior.

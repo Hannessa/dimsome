@@ -221,7 +221,8 @@ fn coerce_settings_for_capabilities(
 
 #[cfg(test)]
 mod tests {
-    use super::nudge_target;
+    use super::{coerce_settings_for_capabilities, nudge_target};
+    use crate::models::{AppSettings, DimmingCapabilities, DimmingMethod};
 
     #[test]
     fn hotkey_maximum_stops_dim_more_at_ninety_five_percent() {
@@ -236,5 +237,20 @@ mod tests {
     #[test]
     fn high_cap_does_not_change_regular_dim_more_steps_below_limit() {
         assert_eq!(nudge_target(40.0, 5.0, 1.0, 95.0), 45.0);
+    }
+
+    #[test]
+    fn unsupported_magnification_defaults_fall_back_to_overlay() {
+        let settings = AppSettings::default();
+        let capabilities = DimmingCapabilities {
+            // Simulate a machine or runtime where Magnification cannot be enabled.
+            magnification_available: false,
+            magnification_status_text: "Unavailable".into(),
+        };
+
+        let coerced = coerce_settings_for_capabilities(settings, &capabilities);
+
+        // Keep the first-run settings usable even when the preferred engine is unavailable.
+        assert_eq!(coerced.dimming_method, DimmingMethod::Overlay);
     }
 }

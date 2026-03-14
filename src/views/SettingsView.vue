@@ -61,21 +61,17 @@ const fieldLabelClass = "text-[0.9rem] uppercase tracking-[0.04em] text-[var(--m
 
 // Disable unavailable dimming engines without hiding them from the user.
 const dimmingMethodOptions = computed<Array<{ label: string; value: DimmingMethod; disabled?: boolean }>>(() => [
-  { label: "Black overlay", value: "overlay" },
-  { label: "Gamma / LUT", value: "gamma" },
   {
     label: "Magnification",
     value: "magnification",
     disabled: !(dimmingCapabilities.value?.magnificationAvailable ?? false)
-  }
+  },  
+  { label: "Black overlay", value: "overlay" },
+  { label: "Gamma / LUT", value: "gamma" },
+  
 ]);
 
 // Summarize the tradeoffs so the selector stays short and the details stay readable.
-const dimmingMethodSummary = computed(() => {
-  const gammaText = "Gamma / LUT may interact with Night Light, HDR, or display calibration.";
-  const magnificationText = dimmingCapabilities.value?.magnificationStatusText ?? "Checking Magnification support...";
-  return `${gammaText} ${magnificationText}`;
-});
 const brightnessStepSummary = computed(() => `${settings.value?.dimStepPercent ?? 0}% per hotkey press`);
 const currentBrightnessPercent = computed(() => 100 - Math.round(currentState.value?.currentDimPercent ?? 0));
 const isFollowingSchedule = computed(() => (currentState.value?.mode ?? "Auto") === "Auto");
@@ -652,8 +648,11 @@ watch(
                 fluid
               />
             </label>
-            <p class="mt-3 text-[var(--muted)]">
-              {{ dimmingMethodSummary }}
+            <p
+              class="mt-3 text-[var(--muted)]"
+              v-if="settings.dimmingMethod === 'gamma'"
+            >
+              Gamma / LUT may interact with Night Light, HDR, or display calibration.
             </p>
           </section>
 
@@ -673,14 +672,16 @@ watch(
           <section>
             <!-- Keep hotkey editing intentionally lightweight until a richer picker exists. -->
             <div :class="sectionLabelClass" class="text-center">Hotkeys</div>
-            <label :class="[fieldClass, 'mt-6']">
+            <p>Increase brightness: Alt + Page Up</p>
+            <p>Decrease brightness: Alt + Page Down</p>
+            <!--<label :class="[fieldClass, 'mt-6']">
               <span :class="fieldLabelClass">Decrease brightness key</span>
               <InputText v-model="settings.manualHotkeys.dimMore.key" fluid @blur="saveHotkeys" />
             </label>
             <label :class="[fieldClass, 'mt-6']">
               <span :class="fieldLabelClass">Increase brightness key</span>
               <InputText v-model="settings.manualHotkeys.dimLess.key" fluid @blur="saveHotkeys" />
-            </label>
+            </label>-->
             <label :class="[fieldClass, 'mt-6']">
               <span :class="fieldLabelClass">Brightness step size</span>
               <AppSlider v-model="settings.dimStepPercent" :min="1" :max="25" :step="1" />
