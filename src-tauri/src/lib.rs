@@ -12,7 +12,8 @@ use tauri::{
     menu::{MenuBuilder, MenuItemBuilder},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     window::Color,
-    Emitter, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent,
+    Emitter, Manager, PhysicalPosition, PhysicalRect, PhysicalSize, WebviewUrl, WebviewWindow,
+    WebviewWindowBuilder, WindowEvent,
 };
 
 use crate::{
@@ -26,6 +27,39 @@ const SETTINGS_WINDOW_BACKGROUND: Color = Color(0x11, 0x11, 0x11, 0xFF);
 const TRAY_ICON_WIDTH: u32 = 32;
 const TRAY_ICON_HEIGHT: u32 = 32;
 const TRAY_ICON_RGBA: &[u8] = include_bytes!("../icons/tray-icon.rgba");
+
+fn bottom_right_work_area_position(
+    work_area: PhysicalRect<i32, u32>,
+    window_size: PhysicalSize<u32>,
+) -> PhysicalPosition<i32> {
+    // Start from the work area's bottom-right corner so the full native frame clears the taskbar.
+    let right_aligned_x =
+        work_area.position.x + work_area.size.width as i32 - window_size.width as i32;
+    let bottom_aligned_y =
+        work_area.position.y + work_area.size.height as i32 - window_size.height as i32;
+
+    // Clamp oversized windows back into the visible work area instead of letting them drift off-screen.
+    let clamped_x = right_aligned_x.max(work_area.position.x);
+    let clamped_y = bottom_aligned_y.max(work_area.position.y);
+
+    (clamped_x, clamped_y).into()
+}
+
+fn position_settings_window(window: &WebviewWindow) -> tauri::Result<()> {
+    // Use the primary monitor so the tray-opened panel matches the notification area display.
+    let Some(monitor) = window.primary_monitor()? else {
+        return Ok(());
+    };
+
+    // Read the outer frame size so the full window aligns with the work area edges.
+    let window_size = window.outer_size()?;
+    let work_area = *monitor.work_area();
+
+    // Align the hidden window before first show so it appears in the expected corner immediately.
+    let position = bottom_right_work_area_position(work_area, window_size);
+    window.set_position(position)?;
+    Ok(())
+}
 
 fn configure_settings_window(window: &WebviewWindow) {
     let settings_window = window.clone();
@@ -58,6 +92,13 @@ pub(crate) fn ensure_settings_window(app: &tauri::AppHandle) -> tauri::Result<We
     .maximizable(false)
     .visible(false)
     .build()?;
+
+    // Place the first session open in the primary work area's bottom-right corner.
+    if let Err(error) = position_settings_window(&window) {
+        // Keep the settings window usable even if placement metrics are unavailable.
+        eprintln!("Failed to position settings window: {error}");
+    }
+
     configure_settings_window(&window);
     Ok(window)
 }
@@ -193,4 +234,47 @@ pub fn run() {
         })
         .run(tauri::generate_context!())
         .expect("error while running Dimsome Tauri");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn work_area(x: i32, y: i32, width: u32, height: u32) -> PhysicalRect<i32, u32> {
+        PhysicalRect {
+            position: (x, y).into(),
+            size: (width, height).into(),
+        }
+    }
+
+    fn window_size(width: u32, height: u32) -> PhysicalSize<u32> {
+        (width, height).into()
+    }
+
+    #[test]
+    fn positions_window_in_bottom_right_of_standard_work_area() {
+        let position =
+            bottom_right_work_area_position(work_area(0, 0, 1920, 1040), window_size(896, 602));
+
+        assert_eq!(position.x, 1024);
+        assert_eq!(position.y, 438);
+    }
+
+    #[test]
+    fn positions_window_in_bottom_right_of_offset_work_area() {
+        let position =
+            bottom_right_work_area_position(work_area(-1280, 0, 1280, 984), window_size(896, 602));
+
+        assert_eq!(position.x, -896);
+        assert_eq!(position.y, 382);
+    }
+
+    #[test]
+    fn clamps_oversized_window_to_work_area_origin() {
+        let position =
+            bottom_right_work_area_position(work_area(100, 200, 700, 500), window_size(896, 602));
+
+        assert_eq!(position.x, 100);
+        assert_eq!(position.y, 200);
+    }
 }
