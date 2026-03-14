@@ -604,7 +604,7 @@ watch(
             label="Add Schedule Time"
             severity="secondary"
             variant="outlined"
-            class=" mt-1 mb-4 sm:w-auto"
+            class=" mt-4 sm:w-auto"
             :disabled="!settings.scheduleEnabled"
             @click="addSchedulePoint"
           />
