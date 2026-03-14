@@ -222,8 +222,8 @@ function addSchedulePoint() {
   model.schedulePoints.push({
     id: crypto.randomUUID(),
     timeOfDay: `${nextHour.toString().padStart(2, "0")}:00:00`,
-    targetDimPercent: 30,
-    transitionMinutes: 30,
+    targetDimPercent: 0,
+    transitionMinutes: 60,
     enabled: true
   });
 }
@@ -453,11 +453,11 @@ watch(
       <div class="h-14 w-full flex justify-center">
       <!-- Clicking the paused badge is the quickest way back to automatic mode. -->
       <div
-        v-if="!isFollowingSchedule"
+        v-if="!isFollowingSchedule && settings.scheduleEnabled"
         class="float-right inline-flex items-center justify-center gap-2.5 text-base font-semibold text-[var(--muted)] cursor-pointer transition-colors hover:text-[var(--text)] mt-2 mb-6"
         @click="resumeSchedule"
       >
-        <span>{{ !settings.scheduleEnabled ? "Schedule disabled" : (isFollowingSchedule ? "Following schedule" : "Schedule Override - Click to Resume") }}</span>
+        <span>Schedule Paused - Click to Resume</span>
       </div>
 
       <!-- The master toggle dims the whole schedule editor without deleting points. -->
@@ -473,19 +473,15 @@ watch(
 
     <section
       v-if="selectedPanel === 'schedule'"
-      class="mx-auto grid min-h-0 w-full max-w-5xl flex-1 overflow-hidden"
+      class="mx-auto grid min-h-0 w-full max-w-5xl overflow-hidden"
     > <!-- justify-items-center -->
 
 
       
       <div :class="[cardClass, 'flex min-h-0 w-full max-w-[980px] flex-col overflow-auto']">
-        <div class="flex flex-wrap items-start justify-between gap-4 ">
-          
 
-          
-        </div>
 
-        <div class="mt-[18px] min-h-0 flex-1  pr-1">
+        <div class="mt-3 min-h-0 flex-1  pr-1">
           <div
             :class="[
               'grid gap-2 pb-1 transition-opacity',
@@ -494,20 +490,20 @@ watch(
           >
             <!-- Keep the schedule list table-like so time, brightness, and duration line up. -->
             <div
-              class="grid min-w-[760px] grid-cols-[minmax(0,1fr)_140px_140px_80px_auto] items-center gap-3 px-3 text-[0.82rem] font-semibold uppercase tracking-[0.04em] text-[var(--muted)]"
+              class="grid min-w-[760px] grid-cols-[260px_140px_140px_80px_auto] items-center gap-3 px-3 text-[0.82rem] font-semibold uppercase tracking-[0.04em] text-[var(--muted)]"
             >
               <span>Time</span>
-              <span>Brightness %</span>
+              <span>Brightness</span>
               <span>Fade duration</span>
-              <span class="text-center">Enabled</span>
-              <span class="text-right">Action</span>
+              <span class="">Enabled</span>
+              <span></span>
             </div>
 
             <!-- Each row stays fully editable so schedule changes can be made in-place. -->
             <div
               v-for="point in settings.schedulePoints"
               :key="point.id"
-              class="glass-card-strong grid min-w-[760px] grid-cols-[minmax(0,1fr)_140px_140px_80px_auto] items-center gap-3 rounded-[16px] px-3 py-2.5"
+              class="glass-card-strong grid min-w-[760px] grid-cols-[260px_140px_140px_80px_auto] items-center gap-3 rounded-[16px] px-3 py-2.5"
             >
               <div :class="fieldClass">
                 <DatePicker
@@ -530,6 +526,7 @@ watch(
                   incrementButtonClass="mt-1"
                   decrementButtonClass="mb-1"
                   showButtons
+                  suffix="%"
                   :min="5"
                   :max="100"
                   :disabled="!settings.scheduleEnabled"
@@ -540,6 +537,8 @@ watch(
                 <InputNumber
                   v-model="point.transitionMinutes"
                   showButtons
+                  suffix=" min"
+
                   :min="0"
                   :max="1439"
                   :disabled="!settings.scheduleEnabled"
@@ -564,10 +563,10 @@ watch(
 
           <!-- Add points beneath the list so the table stays the main focus. -->
           <Button
-            label="Add Schedule Point"
+            label="Add Schedule Time"
             severity="secondary"
             variant="outlined"
-            class="mb-9 mt-[18px] sm:w-auto"
+            class=" mt-1 mb-4 sm:w-auto"
             :disabled="!settings.scheduleEnabled"
             @click="addSchedulePoint"
           />
