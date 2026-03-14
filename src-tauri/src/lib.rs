@@ -222,12 +222,8 @@ pub fn run() {
                         button: MouseButton::Left,
                         button_state: MouseButtonState::Up,
                         ..
-                    }
-                    | TrayIconEvent::DoubleClick {
-                        button: MouseButton::Left,
-                        ..
                     } => {
-                        // Let repeated tray clicks toggle the settings panel without affecting the menu action.
+                        // Toggle on the single click-up event so rapid clicks do not also retrigger on double click.
                         if let Err(error) = toggle_settings_window(tray.app_handle()) {
                             eprintln!("Failed to toggle settings window: {error}");
                         }
