@@ -11,6 +11,7 @@ use tauri::{
     image::Image,
     menu::{MenuBuilder, MenuItemBuilder},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+    window::Color,
     Emitter, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent,
 };
 
@@ -21,6 +22,7 @@ use crate::{
 
 const SETTINGS_WINDOW_WIDTH: f64 = 896.0;
 const SETTINGS_WINDOW_HEIGHT: f64 = 602.0;
+const SETTINGS_WINDOW_BACKGROUND: Color = Color(0x11, 0x11, 0x11, 0xFF);
 const TRAY_ICON_WIDTH: u32 = 32;
 const TRAY_ICON_HEIGHT: u32 = 32;
 const TRAY_ICON_RGBA: &[u8] = include_bytes!("../icons/tray-icon.rgba");
@@ -49,6 +51,8 @@ pub(crate) fn ensure_settings_window(app: &tauri::AppHandle) -> tauri::Result<We
     )
     .title("Dimsome")
     .inner_size(SETTINGS_WINDOW_WIDTH, SETTINGS_WINDOW_HEIGHT)
+    // Paint the first native frame dark before the webview finishes loading.
+    .background_color(SETTINGS_WINDOW_BACKGROUND)
     .resizable(false)
     .minimizable(false)
     .maximizable(false)
