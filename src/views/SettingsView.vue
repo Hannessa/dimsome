@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, ref, watch } from "vue";
 import Button from "primevue/button";
 import DatePicker from "primevue/datepicker";
 import InputNumber from "primevue/inputnumber";
@@ -9,6 +9,7 @@ import ToggleSwitch from "primevue/toggleswitch";
 import AppSlider from "../components/AppSlider.vue";
 import {
   applyManualDim,
+  exitApp,
   getDimmingCapabilities,
   getEffectiveState,
   getSettings,
@@ -39,8 +40,11 @@ const isApplyingSliderBrightness = ref(false);
 const pendingSliderBrightness = ref<number | null>(null);
 const saveQueued = ref(false);
 const isSaving = ref(false);
+const isExiting = ref(false);
 const skipAutosave = ref(true);
 const lastSavedSnapshot = ref<string | null>(null);
+// Reuse the live autosave promise so shutdown can wait for the same queue to settle.
+let activeAutosavePromise: Promise<void> | null = null;
 
 // Keep select options local so the template can stay declarative.
 const appearanceModeOptions: Array<{ label: string; value: "system" | AppearanceMode }> = [
@@ -137,11 +141,11 @@ function serializeAutosaveSettings(model: AppSettings) {
 // Collapse multiple quick edits into a single save loop instead of racing requests.
 function queueAutosave() {
   if (skipAutosave.value || !settings.value) {
-    return;
+    return Promise.resolve();
   }
 
   saveQueued.value = true;
-  void flushAutosaveQueue();
+  return flushAutosaveQueue();
 }
 
 // Only touch startup registration when the requested toggle differs from the applied state.
@@ -154,44 +158,60 @@ function shouldUpdateStartupRegistration(startupEnabled: boolean) {
 }
 
 // Serialize saves so startup registration changes finish before settings persistence.
-async function flushAutosaveQueue() {
-  if (isSaving.value || !settings.value) {
-    return;
+function flushAutosaveQueue() {
+  if (activeAutosavePromise) {
+    return activeAutosavePromise;
   }
 
-  isSaving.value = true;
+  if (!settings.value) {
+    return Promise.resolve();
+  }
 
-  try {
-    while (saveQueued.value && settings.value) {
-      saveQueued.value = false;
-      const snapshot = cloneSettings(settings.value);
+  activeAutosavePromise = (async () => {
+    isSaving.value = true;
 
-      // Skip registry writes when unrelated edits keep the same startup preference.
-      if (shouldUpdateStartupRegistration(snapshot.startupEnabled)) {
-        const startup = await setStartupEnabled(snapshot.startupEnabled);
-        startupState.value = startup;
-        snapshot.startupEnabled = startup.isEnabled;
+    try {
+      while (saveQueued.value && settings.value) {
+        saveQueued.value = false;
+        const snapshot = cloneSettings(settings.value);
+
+        // Skip registry writes when unrelated edits keep the same startup preference.
+        if (shouldUpdateStartupRegistration(snapshot.startupEnabled)) {
+          const startup = await setStartupEnabled(snapshot.startupEnabled);
+          startupState.value = startup;
+          snapshot.startupEnabled = startup.isEnabled;
+        }
+
+        // Persist the normalized settings and then replace the form with the saved copy.
+        const saved = await saveSettings(snapshot);
+        lastSavedSnapshot.value = serializeSettings(saved);
+
+        skipAutosave.value = true;
+        settings.value = saved;
+        syncAppearanceMode(saved.appearanceMode);
+        skipAutosave.value = false;
+
+        // Loop again when the user changed the form while the previous save was running.
+        if (settings.value && serializeSettings(settings.value) !== lastSavedSnapshot.value) {
+          saveQueued.value = true;
+        }
       }
-
-      // Persist the normalized settings and then replace the form with the saved copy.
-      const saved = await saveSettings(snapshot);
-      lastSavedSnapshot.value = serializeSettings(saved);
-
-      skipAutosave.value = true;
-      settings.value = saved;
-      syncAppearanceMode(saved.appearanceMode);
-      skipAutosave.value = false;
-
-      if (settings.value && serializeSettings(settings.value) !== lastSavedSnapshot.value) {
-        saveQueued.value = true;
-      }
+    } catch (error) {
+      // Keep the UI responsive even if persistence fails; the console has the details.
+      console.error("Failed to auto-save settings.", error);
+    } finally {
+      isSaving.value = false;
     }
-  } catch (error) {
-    // Keep the UI responsive even if persistence fails; the console has the details.
-    console.error("Failed to auto-save settings.", error);
-  } finally {
-    isSaving.value = false;
-  }
+  })().finally(() => {
+    activeAutosavePromise = null;
+
+    // Restart the queue if a new edit landed right as the previous loop was winding down.
+    if (saveQueued.value && settings.value) {
+      void flushAutosaveQueue();
+    }
+  });
+
+  return activeAutosavePromise;
 }
 
 // Seed new points one hour after the latest scheduled entry to reduce manual cleanup.
@@ -236,6 +256,50 @@ function updateScheduleTime(point: AppSettings["schedulePoints"][number], value:
 // Hotkeys save on blur so partial edits do not re-register bindings mid-typing.
 function saveHotkeys() {
   queueAutosave();
+}
+
+// Give pending v-model updates a tick, then wait for Settings autosave to go fully idle.
+async function drainAutosaveBeforeExit() {
+  await nextTick();
+
+  if (!settings.value || skipAutosave.value) {
+    return;
+  }
+
+  // Queue one final save pass when the current form differs from the last saved snapshot.
+  if (serializeSettings(settings.value) !== lastSavedSnapshot.value) {
+    saveQueued.value = true;
+  }
+
+  // Keep waiting until the shared save loop has no pending or active work left.
+  while (saveQueued.value || activeAutosavePromise) {
+    await flushAutosaveQueue();
+  }
+}
+
+// Exit through the backend command so the app fully quits instead of hiding to tray.
+async function handleExitApp() {
+  if (isExiting.value) {
+    return;
+  }
+
+  isExiting.value = true;
+
+  try {
+    await drainAutosaveBeforeExit();
+    await exitApp();
+  } catch (error) {
+    // Try the hard exit anyway if the pre-exit save drain hits an unexpected error.
+    console.error("Failed to exit cleanly.", error);
+
+    try {
+      await exitApp();
+    } catch (exitError) {
+      console.error("Failed to force exit Dimsome.", exitError);
+    }
+  } finally {
+    isExiting.value = false;
+  }
 }
 
 // PrimeVue's slideend event may contain range arrays, so normalize it before saving.
@@ -585,6 +649,22 @@ watch(
               <AppSlider v-model="settings.dimStepPercent" :min="1" :max="25" :step="1" />
             </label>
             <p class="mt-3 text-[var(--muted)]">{{ brightnessStepSummary }}</p>
+          </section>
+
+          <section>
+            <!-- Keep the full-exit action separate so it is not confused with routine settings. -->
+            <div class="mt-6 flex justify-center">
+              <Button
+                label="Exit Dimsome"
+                icon="pi pi-power-off"
+                severity="danger"
+                variant="outlined"
+                class="w-full sm:w-auto"
+                :loading="isExiting"
+                :disabled="isExiting"
+                @click="handleExitApp"
+              />
+            </div>
           </section>
         </div>
       </div>
