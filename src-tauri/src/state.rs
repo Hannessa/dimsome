@@ -13,7 +13,7 @@ use crate::{
         clamp_dim_precise, get_effective_dim, normalize_settings, now_fixed, resolve_state,
     },
     settings,
-    sync_tray_tooltip,
+    sync_tray_menu, sync_tray_tooltip,
     windows::{probe_dimming_capabilities, DimmingManager},
 };
 
@@ -82,6 +82,8 @@ pub async fn refresh_state(shared: &SharedState, app: Option<&AppHandle>) -> Eff
     if let Some(app) = app {
         // Mirror the latest effective brightness into the tray hover text on every state refresh.
         sync_tray_tooltip(app, next.current_dim_percent);
+        // Keep the tray menu checkmarks aligned with the latest brightness and schedule mode.
+        sync_tray_menu(app, next.current_dim_percent, state.settings.schedule_enabled);
         let _ = app.emit("state_changed", next.clone());
     }
 
@@ -213,24 +215,66 @@ pub async fn enable_schedule(
     shared: &SharedState,
     app: &AppHandle,
 ) -> Result<EffectiveDimState, String> {
-    let saved = {
-        let mut state = shared.write().await;
-
-        // Persist the scheduler toggle before clearing the manual override state.
-        let mut next_settings = state.settings.clone();
-        next_settings.schedule_enabled = true;
-        let saved = settings::save_settings(&next_settings)?;
-
-        // Drop manual overrides so the schedule takes over immediately.
-        state.settings = saved.clone();
-        state.manual_dim_percent = None;
-        state.manual_override_until = None;
-        saved
-    };
+    let saved = set_schedule_enabled(shared, true).await?;
 
     let next = refresh_state(shared, Some(app)).await;
     let _ = app.emit("settings_saved", saved);
     Ok(next)
+}
+
+pub async fn toggle_schedule_enabled(
+    shared: &SharedState,
+    app: &AppHandle,
+) -> Result<EffectiveDimState, String> {
+    let schedule_enabled = shared.read().await.settings.schedule_enabled;
+    let saved = set_schedule_enabled(shared, !schedule_enabled).await?;
+
+    let next = refresh_state(shared, Some(app)).await;
+    let _ = app.emit("settings_saved", saved);
+    Ok(next)
+}
+
+async fn set_schedule_enabled(shared: &SharedState, enabled: bool) -> Result<AppSettings, String> {
+    let mut state = shared.write().await;
+
+    // Persist the schedule toggle through one shared path so tray and window actions stay aligned.
+    let mut next_settings = state.settings.clone();
+    next_settings.schedule_enabled = enabled;
+    let saved = settings::save_settings(&next_settings)?;
+
+    let RuntimeState {
+        settings,
+        manual_dim_percent,
+        manual_override_until,
+        ..
+    } = &mut *state;
+
+    Ok(apply_schedule_enabled_change(
+        settings,
+        manual_dim_percent,
+        manual_override_until,
+        saved,
+        enabled,
+    ))
+}
+
+fn apply_schedule_enabled_change(
+    settings: &mut AppSettings,
+    manual_dim_percent: &mut Option<f64>,
+    manual_override_until: &mut Option<DateTime<chrono::FixedOffset>>,
+    saved: AppSettings,
+    enabled: bool,
+) -> AppSettings {
+    // Copy the saved settings back into memory before any further refresh work begins.
+    *settings = saved.clone();
+
+    // Clear any manual override only when handing control back to the scheduler.
+    if enabled {
+        *manual_dim_percent = None;
+        *manual_override_until = None;
+    }
+
+    saved
 }
 
 fn coerce_settings_for_capabilities(
@@ -249,8 +293,9 @@ fn coerce_settings_for_capabilities(
 
 #[cfg(test)]
 mod tests {
-    use super::{coerce_settings_for_capabilities, nudge_target};
+    use super::{apply_schedule_enabled_change, coerce_settings_for_capabilities, nudge_target};
     use crate::models::{AppSettings, DimmingCapabilities, DimmingMethod};
+    use crate::schedule::now_fixed;
 
     #[test]
     fn hotkey_maximum_stops_dim_more_at_ninety_five_percent() {
@@ -280,5 +325,50 @@ mod tests {
 
         // Keep the first-run settings usable even when the preferred engine is unavailable.
         assert_eq!(coerced.dimming_method, DimmingMethod::Overlay);
+    }
+
+    #[test]
+    fn enabling_schedule_persists_the_toggle_and_clears_manual_override_state() {
+        let mut settings = AppSettings::default();
+        settings.schedule_enabled = false;
+        let mut manual_dim_percent = Some(65.0);
+        let mut manual_override_until = Some(now_fixed());
+
+        let mut saved = settings.clone();
+        saved.schedule_enabled = true;
+        let applied = apply_schedule_enabled_change(
+            &mut settings,
+            &mut manual_dim_percent,
+            &mut manual_override_until,
+            saved,
+            true,
+        );
+
+        assert!(applied.schedule_enabled);
+        assert!(settings.schedule_enabled);
+        assert_eq!(manual_dim_percent, None);
+        assert_eq!(manual_override_until, None);
+    }
+
+    #[test]
+    fn disabling_schedule_persists_the_toggle_without_clearing_manual_override_state() {
+        let mut settings = AppSettings::default();
+        let mut manual_dim_percent = Some(35.0);
+        let mut manual_override_until = Some(now_fixed());
+
+        let mut saved = settings.clone();
+        saved.schedule_enabled = false;
+        let applied = apply_schedule_enabled_change(
+            &mut settings,
+            &mut manual_dim_percent,
+            &mut manual_override_until,
+            saved,
+            false,
+        );
+
+        assert!(!applied.schedule_enabled);
+        assert!(!settings.schedule_enabled);
+        assert_eq!(manual_dim_percent, Some(35.0));
+        assert!(manual_override_until.is_some());
     }
 }

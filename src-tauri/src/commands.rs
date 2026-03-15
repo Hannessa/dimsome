@@ -67,6 +67,14 @@ pub async fn enable_schedule(
 }
 
 #[tauri::command]
+pub async fn toggle_schedule_enabled(
+    app: AppHandle,
+    state: State<'_, SharedState>,
+) -> Result<EffectiveDimState, String> {
+    state::toggle_schedule_enabled(&state.inner().clone(), &app).await
+}
+
+#[tauri::command]
 pub async fn get_startup_state() -> Result<StartupRegistrationState, String> {
     Ok(startup::get_startup_state())
 }

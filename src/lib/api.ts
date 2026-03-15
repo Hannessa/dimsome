@@ -31,6 +31,10 @@ export function enableSchedule() {
   return invoke<EffectiveDimState>("enable_schedule");
 }
 
+export function toggleScheduleEnabled() {
+  return invoke<EffectiveDimState>("toggle_schedule_enabled");
+}
+
 export function getStartupState() {
   return invoke<StartupRegistrationState>("get_startup_state");
 }

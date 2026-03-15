@@ -9,11 +9,11 @@ mod windows;
 
 use tauri::{
     image::Image,
-    menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem},
+    menu::{CheckMenuItemBuilder, Menu, MenuBuilder, MenuItemBuilder, PredefinedMenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     window::Color,
     Emitter, Manager, PhysicalPosition, PhysicalRect, PhysicalSize, WebviewUrl, WebviewWindow,
-    WebviewWindowBuilder, WindowEvent,
+    WebviewWindowBuilder, WindowEvent, Wry,
 };
 
 use crate::{
@@ -30,6 +30,8 @@ pub(crate) const TRAY_ICON_ID: &str = "main";
 const TRAY_ICON_WIDTH: u32 = 32;
 const TRAY_ICON_HEIGHT: u32 = 32;
 const TRAY_ICON_RGBA: &[u8] = include_bytes!("../icons/tray-icon.rgba");
+
+struct TrayMenuState(Menu<Wry>);
 
 fn bottom_right_work_area_position(
     work_area: PhysicalRect<i32, u32>,
@@ -140,6 +142,24 @@ fn brightness_percent_from_dim(dim_percent: f64) -> u8 {
     (100.0 - clamped_dim_percent).round().clamp(1.0, 100.0) as u8
 }
 
+fn checked_tray_brightness_preset(dim_percent: f64) -> u8 {
+    // Convert the live dim level into a raw brightness value before picking a preset bucket.
+    let brightness_percent = (100.0 - clamp_dim_precise(dim_percent).clamp(0.0, 99.0)).floor() as u8;
+
+    // Keep the lowest tray preset selected for all very dark values below twenty percent.
+    if brightness_percent < 20 {
+        return 10;
+    }
+
+    // Preserve the full-brightness shortcut as its own exact checked state.
+    if brightness_percent >= 100 {
+        return 100;
+    }
+
+    // Round down to the nearest ten so the menu reflects the current preset bucket.
+    (brightness_percent / 10) * 10
+}
+
 pub(crate) fn format_tray_tooltip(dim_percent: f64) -> String {
     // Keep the tray hover text focused on the app name first, with the live brightness alongside it.
     format!("{APP_NAME} - {}%", brightness_percent_from_dim(dim_percent))
@@ -160,6 +180,51 @@ pub(crate) fn sync_tray_tooltip(app: &tauri::AppHandle, dim_percent: f64) {
     }
 }
 
+pub(crate) fn sync_tray_menu(
+    app: &tauri::AppHandle,
+    dim_percent: f64,
+    schedule_enabled: bool,
+) {
+    let Some(menu) = app.try_state::<TrayMenuState>() else {
+        eprintln!("Failed to update tray menu: managed tray menu state was not found");
+        return;
+    };
+
+    let checked_preset = checked_tray_brightness_preset(dim_percent);
+
+    // Keep exactly one brightness preset checked so the menu mirrors the live output.
+    for brightness_percent in TRAY_BRIGHTNESS_PRESETS {
+        let Some(item) = menu.0.get(&tray_brightness_menu_id(brightness_percent)) else {
+            eprintln!("Failed to update tray menu: brightness item '{brightness_percent}%' was not found");
+            continue;
+        };
+
+        let Some(check_item) = item.as_check_menuitem() else {
+            eprintln!("Failed to update tray menu: brightness item '{brightness_percent}%' is not checkable");
+            continue;
+        };
+
+        if let Err(error) = check_item.set_checked(brightness_percent == checked_preset) {
+            eprintln!("Failed to update tray menu brightness checkmark: {error}");
+        }
+    }
+
+    // Mirror the persisted schedule toggle into the tray so it stays in sync with the app.
+    let Some(item) = menu.0.get("enable_schedule") else {
+        eprintln!("Failed to update tray menu: schedule item was not found");
+        return;
+    };
+
+    let Some(check_item) = item.as_check_menuitem() else {
+        eprintln!("Failed to update tray menu: schedule item is not checkable");
+        return;
+    };
+
+    if let Err(error) = check_item.set_checked(schedule_enabled) {
+        eprintln!("Failed to update tray menu schedule checkmark: {error}");
+    }
+}
+
 pub fn run() {
     tauri::Builder::default()
         .manage(initialize_state())
@@ -171,6 +236,7 @@ pub fn run() {
             commands::apply_manual_dim,
             commands::apply_manual_dim_and_disable_schedule,
             commands::enable_schedule,
+            commands::toggle_schedule_enabled,
             commands::get_startup_state,
             commands::set_startup_enabled,
             commands::exit_app
@@ -217,15 +283,17 @@ pub fn run() {
                 .iter()
                 .map(|brightness_percent| {
                     // Keep the native labels in brightness terms while the backend still stores dim percentage.
-                    MenuItemBuilder::with_id(
+                    CheckMenuItemBuilder::with_id(
                         tray_brightness_menu_id(*brightness_percent),
                         format!("{brightness_percent}%"),
                     )
+                    .checked(*brightness_percent == 100)
                     .build(app)
                 })
                 .collect::<tauri::Result<Vec<_>>>()?;
-            let enable_schedule =
-                MenuItemBuilder::with_id("enable_schedule", "Enable Schedule").build(app)?;
+            let enable_schedule = CheckMenuItemBuilder::with_id("enable_schedule", "Enable Schedule")
+                .checked(true)
+                .build(app)?;
             let open_settings =
                 MenuItemBuilder::with_id("open_settings", "Open Settings").build(app)?;
             let quit = MenuItemBuilder::with_id("quit", "Exit").build(app)?;
@@ -246,6 +314,7 @@ pub fn run() {
                 .item(&open_settings)
                 .item(&quit)
                 .build()?;
+            app.manage(TrayMenuState(menu.clone()));
             let tray_icon = Image::new(TRAY_ICON_RGBA, TRAY_ICON_WIDTH, TRAY_ICON_HEIGHT);
 
             let _tray = TrayIconBuilder::with_id(TRAY_ICON_ID)
@@ -290,11 +359,13 @@ pub fn run() {
                                 if let Some(shared) =
                                     app_handle.try_state::<crate::state::SharedState>()
                                 {
-                                    if let Err(error) =
-                                        crate::state::enable_schedule(shared.inner(), &app_handle)
-                                            .await
+                                    if let Err(error) = crate::state::toggle_schedule_enabled(
+                                        shared.inner(),
+                                        &app_handle,
+                                    )
+                                    .await
                                     {
-                                        eprintln!("Failed to re-enable schedule from tray: {error}");
+                                        eprintln!("Failed to toggle schedule from tray: {error}");
                                     }
                                 }
                             });
@@ -408,5 +479,36 @@ mod tests {
     #[test]
     fn rounds_fractional_brightness_labels_for_tray_tooltip() {
         assert_eq!(format_tray_tooltip(33.6), "Dimsome - 66%");
+    }
+
+    #[test]
+    fn checks_full_brightness_preset_at_one_hundred_percent() {
+        assert_eq!(checked_tray_brightness_preset(0.0), 100);
+    }
+
+    #[test]
+    fn checks_ninety_percent_preset_for_ninety_nine_percent_brightness() {
+        assert_eq!(checked_tray_brightness_preset(1.0), 90);
+    }
+
+    #[test]
+    fn checks_forty_percent_preset_for_forty_five_percent_brightness() {
+        assert_eq!(checked_tray_brightness_preset(55.0), 40);
+    }
+
+    #[test]
+    fn keeps_ten_percent_preset_for_exact_ten_percent_brightness() {
+        assert_eq!(checked_tray_brightness_preset(90.0), 10);
+    }
+
+    #[test]
+    fn keeps_ten_percent_preset_for_five_percent_brightness() {
+        assert_eq!(checked_tray_brightness_preset(95.0), 10);
+    }
+
+    #[test]
+    fn floors_fractional_brightness_to_the_lower_preset_bucket() {
+        assert_eq!(checked_tray_brightness_preset(9.1), 90);
+        assert_eq!(checked_tray_brightness_preset(10.0), 90);
     }
 }
