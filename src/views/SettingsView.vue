@@ -71,6 +71,21 @@ const dimmingMethodOptions = computed<Array<{ label: string; value: DimmingMetho
   
 ]);
 
+// Keep the dimming-method copy in one place so the template can stay small.
+const dimmingMethodDescriptions: Record<DimmingMethod, string> = {
+  magnification:
+    "Uses the Windows Magnification API to add a fullscreen color effect to dim the entire desktop without zooming.",
+  overlay:
+    "Places a transparent black layer over each screen to make it look dimmer. This leaves the display’s underlying color output unchanged, but some overlay UI may appear above it.",
+  gamma:
+    "Changes the display’s gamma / lookup table to darken the display output. Gamma / LUT may interact with Night Light, HDR, or display calibration."
+};
+
+// Resolve the active helper copy from the currently selected dimming method.
+const selectedDimmingMethodDescription = computed(() =>
+  settings.value ? dimmingMethodDescriptions[settings.value.dimmingMethod] : ""
+);
+
 // Summarize the tradeoffs so the selector stays short and the details stay readable.
 const brightnessStepSummary = computed(() => `${settings.value?.dimStepPercent ?? 0}% brightness per hotkey press`);
 const currentBrightnessPercent = computed(() => 100 - Math.round(currentState.value?.currentDimPercent ?? 0));
@@ -642,11 +657,8 @@ watch(
                 fluid
               />
             </label>
-            <p
-              class="mt-3 text-[var(--muted)]"
-              v-if="settings.dimmingMethod === 'gamma'"
-            >
-              Gamma / LUT may interact with Night Light, HDR, or display calibration.
+            <p class="mt-3 text-[var(--muted)]">
+              {{ selectedDimmingMethodDescription }}
             </p>
           </section>
 
