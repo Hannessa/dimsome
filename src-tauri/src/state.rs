@@ -13,6 +13,7 @@ use crate::{
         clamp_dim_precise, get_effective_dim, normalize_settings, now_fixed, resolve_state,
     },
     settings,
+    sync_tray_tooltip,
     windows::{probe_dimming_capabilities, DimmingManager},
 };
 
@@ -79,6 +80,8 @@ pub async fn refresh_state(shared: &SharedState, app: Option<&AppHandle>) -> Eff
     }
 
     if let Some(app) = app {
+        // Mirror the latest effective brightness into the tray hover text on every state refresh.
+        sync_tray_tooltip(app, next.current_dim_percent);
         let _ = app.emit("state_changed", next.clone());
     }
 

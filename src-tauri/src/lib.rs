@@ -18,12 +18,15 @@ use tauri::{
 
 use crate::{
     hotkeys::{HotkeyAction, HotkeyManager},
+    schedule::clamp_dim_precise,
     state::{initialize_state, refresh_state, reset_dimming_before_exit, start_loop},
 };
 
+const APP_NAME: &str = "Dimsome";
 const SETTINGS_WINDOW_WIDTH: f64 = 896.0;
 const SETTINGS_WINDOW_HEIGHT: f64 = 602.0;
 const SETTINGS_WINDOW_BACKGROUND: Color = Color(0x11, 0x11, 0x11, 0xFF);
+pub(crate) const TRAY_ICON_ID: &str = "main";
 const TRAY_ICON_WIDTH: u32 = 32;
 const TRAY_ICON_HEIGHT: u32 = 32;
 const TRAY_ICON_RGBA: &[u8] = include_bytes!("../icons/tray-icon.rgba");
@@ -131,6 +134,32 @@ fn tray_brightness_menu_id(brightness_percent: u8) -> String {
     format!("brightness_{brightness_percent}")
 }
 
+fn brightness_percent_from_dim(dim_percent: f64) -> u8 {
+    // Convert the stored dim percentage back into the brightness label shown to the user.
+    let clamped_dim_percent = clamp_dim_precise(dim_percent).clamp(0.0, 99.0);
+    (100.0 - clamped_dim_percent).round().clamp(1.0, 100.0) as u8
+}
+
+pub(crate) fn format_tray_tooltip(dim_percent: f64) -> String {
+    // Keep the tray hover text focused on the app name first, with the live brightness alongside it.
+    format!("{APP_NAME} - {}%", brightness_percent_from_dim(dim_percent))
+}
+
+pub(crate) fn sync_tray_tooltip(app: &tauri::AppHandle, dim_percent: f64) {
+    let tooltip = format_tray_tooltip(dim_percent);
+
+    // Look up the registered tray by its stable id so every state change updates the same icon.
+    let Some(tray) = app.tray_by_id(TRAY_ICON_ID) else {
+        eprintln!("Failed to update tray tooltip: tray icon '{TRAY_ICON_ID}' was not found");
+        return;
+    };
+
+    // Keep tooltip failures non-fatal so dimming still works even if the shell rejects an update.
+    if let Err(error) = tray.set_tooltip(Some(&tooltip)) {
+        eprintln!("Failed to update tray tooltip: {error}");
+    }
+}
+
 pub fn run() {
     tauri::Builder::default()
         .manage(initialize_state())
@@ -219,8 +248,10 @@ pub fn run() {
                 .build()?;
             let tray_icon = Image::new(TRAY_ICON_RGBA, TRAY_ICON_WIDTH, TRAY_ICON_HEIGHT);
 
-            let _tray = TrayIconBuilder::new()
+            let _tray = TrayIconBuilder::with_id(TRAY_ICON_ID)
                 .icon(tray_icon)
+                // Seed the hover text immediately so the tray icon never appears unnamed at startup.
+                .tooltip(format_tray_tooltip(0.0))
                 .menu(&menu)
                 // Keep the native tray menu on right click only so left click can open Settings.
                 .show_menu_on_left_click(false)
@@ -357,5 +388,25 @@ mod tests {
 
         assert_eq!(position.x, 100);
         assert_eq!(position.y, 200);
+    }
+
+    #[test]
+    fn formats_tray_tooltip_for_full_brightness() {
+        assert_eq!(format_tray_tooltip(0.0), "Dimsome - 100%");
+    }
+
+    #[test]
+    fn formats_tray_tooltip_for_half_brightness() {
+        assert_eq!(format_tray_tooltip(50.0), "Dimsome - 50%");
+    }
+
+    #[test]
+    fn formats_tray_tooltip_for_near_minimum_brightness() {
+        assert_eq!(format_tray_tooltip(99.0), "Dimsome - 1%");
+    }
+
+    #[test]
+    fn rounds_fractional_brightness_labels_for_tray_tooltip() {
+        assert_eq!(format_tray_tooltip(33.6), "Dimsome - 66%");
     }
 }
